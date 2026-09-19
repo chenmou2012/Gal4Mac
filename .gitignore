@@ -1,0 +1,28 @@
+# Gal4Mac - Git Ignore
+# 游戏目录不应该被git跟踪（太大且受版权保护）
+
+# 测试游戏
+/Aokana/
+/CLANNAD/
+/*/*.exe
+/*/UnityPlayer.dll
+/*/Steam*.dll
+
+# macOS
+.DS_Store
+*.swp
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+build/
+DerivedData/
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+
+# 临时日志
+*.log
+/tmp/

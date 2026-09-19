@@ -1,0 +1,298 @@
+import Foundation
+import Gal4MacCore
+
+/// Gal4Mac CLI 主程序
+public struct CLI {
+
+    public static func main(_ args: [String]) {
+        guard args.count > 1 else {
+            printUsage()
+            exit(0)
+        }
+
+        let command = args[1]
+
+        do {
+            switch command {
+            case "version":
+                printVersion()
+            case "doctor":
+                try runDoctor()
+            case "scan":
+                try runScan(args: Array(args.dropFirst(2)))
+            case "list":
+                try runList()
+            case "info":
+                try runInfo(args: Array(args.dropFirst(2)))
+            case "launch":
+                try runLaunch(args: Array(args.dropFirst(2)))
+            case "remove":
+                try runRemove(args: Array(args.dropFirst(2)))
+            case "help", "-h", "--help":
+                printUsage()
+            default:
+                print("❌ 未知命令: \(command)")
+                printUsage()
+                exit(1)
+            }
+        } catch {
+            print("❌ 错误: \(error.localizedDescription)")
+            exit(1)
+        }
+    }
+
+    // MARK: - 命令实现
+
+    static func printVersion() {
+        print("""
+        Gal4Mac v0.1.0 (Phase 2 - Core)
+        macOS Galgame 启动器
+        License: GPL-3.0
+        """)
+    }
+
+    static func printUsage() {
+        print("""
+        Gal4Mac - macOS Galgame 启动器
+
+        用法:
+          gal4mac <command> [options]
+
+        命令:
+          version              显示版本
+          doctor               检查环境（Engine 等）
+          scan <dir>           扫描目录添加游戏到库
+          list                 列出已识别的游戏
+          info <name>          显示游戏详细信息
+          launch <name>        启动游戏（按名称匹配）
+          remove <name>        从库中移除游戏
+          help                 显示此帮助
+
+        示例:
+          gal4mac scan ~/Games
+          gal4mac list
+          gal4mac launch CLANNAD
+          gal4mac info Aokana
+          gal4mac launch CLANNAD --fullscreen --width 1920 --height 1080
+
+        """)
+    }
+
+    static func runDoctor() throws {
+        print("🩺 环境检查\n")
+
+        // macOS 版本
+        let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
+        print("✓ macOS: \(osVersion)")
+
+        // 架构
+        #if arch(arm64)
+        print("✓ 架构: Apple Silicon (arm64)")
+        #else
+        print("✓ 架构: Intel (x86_64)")
+        #endif
+
+        // Mythic 安装检查
+        print("\n📦 Mythic Engine:")
+        if EngineManager.isInstalled() {
+            if let version = EngineManager.currentVersion() {
+                print("✓ Mythic Engine 已安装")
+                print("  版本: \(version.string)")
+                print("  路径: \(EngineManager.engineDirectory.path)")
+            } else {
+                print("⚠️  Engine 已安装但版本信息无法读取")
+            }
+        } else {
+            print("❌ Mythic Engine 未安装")
+            print("   安装命令: brew install --cask mythic")
+            print("   然后启动 Mythic 让其下载 Engine")
+            exit(1)
+        }
+
+        // wine 二进制
+        print("\n🍷 Wine 二进制:")
+        let fm = FileManager.default
+        if fm.fileExists(atPath: EngineManager.wineExecutable.path) {
+            print("✓ wine64: \(EngineManager.wineExecutable.path)")
+        } else {
+            print("❌ wine64 未找到")
+        }
+
+        // DXVK
+        print("\n🎨 DXVK (DirectX 转 Vulkan):")
+        if fm.fileExists(atPath: EngineManager.dxvkDirectory.path) {
+            let x64 = EngineManager.dxvkDirectory.appendingPathComponent("x64/d3d11.dll")
+            let x32 = EngineManager.dxvkDirectory.appendingPathComponent("x32/d3d11.dll")
+            print("  - x64 d3d11.dll: \(fm.fileExists(atPath: x64.path) ? "✓" : "❌")")
+            print("  - x32 d3d11.dll: \(fm.fileExists(atPath: x32.path) ? "✓" : "❌")")
+        } else {
+            print("❌ DXVK 未找到")
+        }
+
+        print("\n✅ 检查完成")
+    }
+
+    static func runScan(args: [String]) throws {
+        guard let path = args.first else {
+            print("❌ 用法: gal4mac scan <directory>")
+            exit(1)
+        }
+
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        print("📂 扫描目录: \(url.path)")
+
+        let manager = LibraryManager()
+        let found = try manager.scan(directory: url)
+
+        if found.isEmpty {
+            print("⚠️  未发现新的 galgame")
+        } else {
+            print("\n✅ 共发现 \(found.count) 个游戏")
+        }
+    }
+
+    static func runList() throws {
+        let manager = LibraryManager()
+        let games = manager.loadLibrary()
+
+        if games.isEmpty {
+            print("📭 游戏库为空")
+            print("   使用 'gal4mac scan <dir>' 添加游戏")
+            return
+        }
+
+        print("📚 游戏库 (\(games.count) 个游戏):\n")
+        for (index, game) in games.enumerated() {
+            print("\(index + 1). \(game.name)")
+            print("   引擎: \(game.engine.compatibility.emoji) \(game.engine.displayName) [\(game.engine.compatibility.rawValue)]")
+            print("   大小: \(game.sizeDescription)")
+            print("   路径: \(game.path.path)")
+            print("")
+        }
+    }
+
+    static func runInfo(args: [String]) throws {
+        guard let name = args.first else {
+            print("❌ 用法: gal4mac info <name>")
+            exit(1)
+        }
+
+        let manager = LibraryManager()
+        guard let game = manager.findGame(named: name) else {
+            print("❌ 未找到游戏: \(name)")
+            exit(1)
+        }
+
+        print("""
+        🎮 \(game.name)
+
+        引擎:       \(game.engine.compatibility.emoji) \(game.engine.displayName) [\(game.engine.compatibility.rawValue)]
+        路径:       \(game.path.path)
+        可执行文件: \(game.executable)
+        大小:       \(game.sizeDescription)
+        检测时间:   \(game.detectedAt.formatted())
+        最后游玩:   \(game.lastPlayed?.formatted() ?? "从未")
+
+        启动命令: gal4mac launch "\(game.name)"
+        """)
+    }
+
+    static func runLaunch(args: [String]) throws {
+        guard let name = args.first else {
+            print("❌ 用法: gal4mac launch <name> [options]")
+            exit(1)
+        }
+
+        var fullscreen = false
+        var width = 1280
+        var height = 720
+        var additionalArgs: [String] = []
+        var pathOverride: String? = nil
+
+        var i = 1
+        while i < args.count {
+            let arg = args[i]
+            switch arg {
+            case "--fullscreen", "-f":
+                fullscreen = true
+            case "--width", "-w":
+                if i + 1 < args.count, let w = Int(args[i + 1]) {
+                    width = w
+                    i += 1
+                }
+            case "--height", "-h":
+                if i + 1 < args.count, let h = Int(args[i + 1]) {
+                    height = h
+                    i += 1
+                }
+            case "--path", "-p":
+                if i + 1 < args.count {
+                    pathOverride = args[i + 1]
+                    i += 1
+                }
+            case "--":
+                additionalArgs.append(contentsOf: args[(i + 1)...])
+                i = args.count
+            default:
+                additionalArgs.append(arg)
+            }
+            i += 1
+        }
+
+        let launcher = GameLauncher()
+
+        // 如果指定了 --path，跳过库查找，直接构造 Game
+        let game: Game
+        if let pathStr = pathOverride {
+            let path = URL(fileURLWithPath: (pathStr as NSString).expandingTildeInPath)
+            let detector = EngineDetector()
+            let engine = detector.detect(at: path)
+            guard let executable = detector.findExecutable(at: path, engine: engine) else {
+                print("❌ 未找到可执行文件: \(path.path)")
+                exit(1)
+            }
+            game = Game(
+                name: path.lastPathComponent,
+                path: path,
+                executable: executable,
+                engine: engine
+            )
+        } else {
+            let manager = LibraryManager()
+            guard let found = manager.findGame(named: name) else {
+                print("❌ 库中未找到游戏: \(name)")
+                print("   使用 'gal4mac list' 查看所有游戏")
+                print("   或使用 'gal4mac launch <name> --path <directory>' 直接指定路径")
+                exit(1)
+            }
+            game = found
+        }
+
+        try launcher.launch(
+            game: game,
+            fullscreen: fullscreen,
+            width: width,
+            height: height,
+            additionalArgs: additionalArgs
+        )
+    }
+
+    static func runRemove(args: [String]) throws {
+        guard let name = args.first else {
+            print("❌ 用法: gal4mac remove <name>")
+            exit(1)
+        }
+
+        let manager = LibraryManager()
+        var library = manager.loadLibrary()
+        let initial = library.count
+        library.removeAll { $0.name.localizedCaseInsensitiveContains(name) }
+
+        if library.count < initial {
+            try manager.saveLibrary(library)
+            print("✓ 已从库中移除 \(initial - library.count) 个游戏")
+        } else {
+            print("⚠️  未找到匹配 '\(name)' 的游戏")
+        }
+    }
+}
