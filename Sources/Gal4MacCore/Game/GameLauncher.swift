@@ -49,13 +49,27 @@ public final class GameLauncher {
             throw LaunchError.engineNotReady
         }
 
-        // 2. 检查可执行文件
+        // 2. 准备 Wine prefix
+        let prefix = engine.winePrefix(for: game.name)
+
+        // 3. 自动应用音频优化到 Wine prefix（解决杂音问题）
+        // 这是经验证最有效的方法：
+        // - HKCU\Software\Wine\DirectSound\HardwareAcceleration=Emulation
+        // - 配合 PULSE_LATENCY_MSEC 环境变量
+        // 注意：不要用 WINEDLLOVERRIDES="dsound=n,b" 会导致无声音
+        do {
+            try engine.applyAudioOptimizations(prefix: prefix)
+        } catch {
+            // 忽略错误，不影响游戏启动
+        }
+
+        // 4. 检查可执行文件
         let exePath = game.executablePath
         guard FileManager.default.fileExists(atPath: exePath.path) else {
             throw LaunchError.executableMissing(game.executable)
         }
 
-        // 3. 准备启动参数
+        // 5. 准备启动参数
         var args = game.launchArgs.isEmpty
             ? game.engine.defaultLaunchArgs(width: width, height: height)
             : game.launchArgs
@@ -71,15 +85,12 @@ public final class GameLauncher {
 
         args.append(contentsOf: additionalArgs)
 
-        // 4. 准备 Wine prefix
-        let prefix = engine.winePrefix(for: game.name)
-
-        // 5. 启动
+        // 6. 启动
         print("🚀 启动 \(game.name) (\(game.engine.displayName))")
         print("📁 路径: \(game.path.path)")
         print("⚙️  参数: \(args.joined(separator: " "))")
-        if audio.latencyMs != nil || audio.disableHardwareAcceleration {
-            print("🔊 音频配置: latency=\(audio.latencyMs ?? 60)ms, hw=\(audio.disableHardwareAcceleration ? "off" : "on")")
+        if audio.latencyMs != nil {
+            print("🔊 音频延迟: \(audio.latencyMs!)ms")
         }
 
         do {

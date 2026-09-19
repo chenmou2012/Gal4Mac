@@ -212,11 +212,40 @@ public final class EngineManager {
         if let sdl = audio.sdlDriver {
             env["SDL_AUDIODRIVER"] = sdl
         }
-        if audio.disableHardwareAcceleration {
-            env["WINEDLLOVERRIDES"] = "dsound=n,b"
-        }
+        // 注意：不要设置 WINEDLLOVERRIDES="dsound=n,b" 或 "dsound=b"
+        // 这会破坏DirectSound，导致无声音
+        // 改用注册表方式：HKCU\Software\Wine\DirectSound\HardwareAcceleration=Emulation
 
         return env
+    }
+
+    /// 自动应用 DirectSound 优化到 Wine prefix
+    /// 这是解决杂音的真正有效方法（基于Mythic Engine + Wine 7.7测试）
+    public static func applyAudioOptimizations(prefix: URL) throws {
+        guard FileManager.default.fileExists(atPath: prefix.path) else {
+            return  // prefix还不存在，跳过
+        }
+
+        let regCommands = [
+            ("HKCU\\Software\\Wine\\DirectSound", "HardwareAcceleration", "Emulation"),
+            ("HKCU\\Software\\Wine\\DirectSound", "DefaultSampleRate", "48000"),
+            ("HKCU\\Software\\Wine\\DirectSound", "DefaultBitsPerSample", "16")
+        ]
+
+        let env = ProcessInfo.processInfo.environment
+        var processEnv = env
+        processEnv["WINEPREFIX"] = prefix.path
+        processEnv["WINESERVER"] = wineServer.path
+        processEnv["DYLD_FALLBACK_LIBRARY_PATH"] = wineLibDirectory.path
+
+        for (key, name, value) in regCommands {
+            let p = Process()
+            p.executableURL = wineExecutable
+            p.arguments = ["reg", "add", key, "/v", name, "/t", "REG_SZ", "/d", value, "/f"]
+            p.environment = processEnv
+            try p.run()
+            p.waitUntilExit()
+        }
     }
 
     /// 执行 wine 命令

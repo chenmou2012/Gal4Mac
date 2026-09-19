@@ -252,6 +252,8 @@ public struct CLI {
                     i += 1
                 }
             case "--no-audio-hw":
+                // 现在默认就是禁用硬件加速（通过注册表），不再需要此选项
+                // 保留向后兼容
                 audio.disableHardwareAcceleration = true
             case "--":
                 additionalArgs.append(contentsOf: args[(i + 1)...])
