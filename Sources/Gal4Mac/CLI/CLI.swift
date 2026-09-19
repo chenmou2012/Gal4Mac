@@ -68,12 +68,23 @@ public struct CLI {
           remove <name>        从库中移除游戏
           help                 显示此帮助
 
+        启动选项:
+          --fullscreen, -f     全屏模式
+          --width, -w <n>      窗口宽度（默认 1280）
+          --height, -h <n>     窗口高度（默认 720）
+          --audio-lowlatency   低延迟音频（减少杂音，推荐）
+          --audio-highquality  高质量音频（更稳定，可能有轻微延迟）
+          --audio-latency <ms> 自定义音频延迟（毫秒）
+          --no-audio-hw        禁用音频硬件加速（解决严重杂音）
+
         示例:
           gal4mac scan ~/Games
           gal4mac list
           gal4mac launch CLANNAD
           gal4mac info Aokana
           gal4mac launch CLANNAD --fullscreen --width 1920 --height 1080
+          gal4mac launch CLANNAD --audio-lowlatency
+          gal4mac launch Aokana --audio-latency 200 --no-audio-hw
 
         """)
     }
@@ -208,6 +219,7 @@ public struct CLI {
         var height = 720
         var additionalArgs: [String] = []
         var pathOverride: String? = nil
+        var audio = EngineManager.AudioConfig()
 
         var i = 1
         while i < args.count {
@@ -230,6 +242,17 @@ public struct CLI {
                     pathOverride = args[i + 1]
                     i += 1
                 }
+            case "--audio-lowlatency":
+                audio.latencyMs = 60
+            case "--audio-highquality":
+                audio = .highQuality
+            case "--audio-latency":
+                if i + 1 < args.count, let ms = Int(args[i + 1]) {
+                    audio.latencyMs = ms
+                    i += 1
+                }
+            case "--no-audio-hw":
+                audio.disableHardwareAcceleration = true
             case "--":
                 additionalArgs.append(contentsOf: args[(i + 1)...])
                 i = args.count
@@ -273,7 +296,8 @@ public struct CLI {
             fullscreen: fullscreen,
             width: width,
             height: height,
-            additionalArgs: additionalArgs
+            additionalArgs: additionalArgs,
+            audio: audio
         )
     }
 

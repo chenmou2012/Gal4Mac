@@ -151,14 +151,71 @@ public final class EngineManager {
         containersDirectory.appendingPathComponent(gameName)
     }
 
+    /// 音频配置选项
+    public struct AudioConfig {
+        /// 音频缓冲区延迟（毫秒），用于消除杂音。常用值：60, 120, 200
+        public var latencyMs: Int?
+
+        /// 强制使用的音频驱动：coreaudio (macOS默认), oss, alsa
+        public var driver: String?
+
+        /// 是否禁用硬件音频加速（解决严重杂音）
+        public var disableHardwareAcceleration: Bool
+
+        /// SDL 音频驱动
+        public var sdlDriver: String?
+
+        public init(
+            latencyMs: Int? = nil,
+            driver: String? = nil,
+            disableHardwareAcceleration: Bool = false,
+            sdlDriver: String? = nil
+        ) {
+            self.latencyMs = latencyMs
+            self.driver = driver
+            self.disableHardwareAcceleration = disableHardwareAcceleration
+            self.sdlDriver = sdlDriver
+        }
+
+        /// 默认音频配置（保守，适合大多数游戏）
+        public static let conservative = AudioConfig(
+            latencyMs: 60,
+            disableHardwareAcceleration: false
+        )
+
+        /// 高质量音频配置（适合音乐为主的游戏）
+        public static let highQuality = AudioConfig(
+            latencyMs: 120,
+            disableHardwareAcceleration: true
+        )
+    }
+
     /// 启动 Engine 的环境变量
-    public static func launchEnvironment(prefix: URL) -> [String: String] {
+    public static func launchEnvironment(
+        prefix: URL,
+        audio: AudioConfig = AudioConfig()
+    ) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         env["WINEPREFIX"] = prefix.path
         env["WINESERVER"] = wineServer.path
         env["DYLD_FALLBACK_LIBRARY_PATH"] = wineLibDirectory.path
         env["DXVK_ASYNC"] = "1"
         env["WINEDEBUG"] = "-all"  // 减少日志噪音
+
+        // 音频优化环境变量
+        if let latency = audio.latencyMs {
+            env["PULSE_LATENCY_MSEC"] = String(latency)
+        }
+        if let driver = audio.driver {
+            env["SDL_AUDIODRIVER"] = driver
+        }
+        if let sdl = audio.sdlDriver {
+            env["SDL_AUDIODRIVER"] = sdl
+        }
+        if audio.disableHardwareAcceleration {
+            env["WINEDLLOVERRIDES"] = "dsound=n,b"
+        }
+
         return env
     }
 
@@ -169,14 +226,15 @@ public final class EngineManager {
         executable: String,
         arguments: [String] = [],
         workingDirectory: URL? = nil,
-        captureOutput: Bool = false
+        captureOutput: Bool = false,
+        audio: AudioConfig = AudioConfig()
     ) throws -> Int32 {
         try validate()
 
         let process = Process()
         process.executableURL = wineExecutable
         process.arguments = [executable] + arguments
-        process.environment = launchEnvironment(prefix: prefix)
+        process.environment = launchEnvironment(prefix: prefix, audio: audio)
 
         if let workDir = workingDirectory {
             process.currentDirectoryURL = workDir

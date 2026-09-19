@@ -39,7 +39,8 @@ public final class GameLauncher {
         fullscreen: Bool = false,
         width: Int = 1280,
         height: Int = 720,
-        additionalArgs: [String] = []
+        additionalArgs: [String] = [],
+        audio: EngineManager.AudioConfig = EngineManager.AudioConfig()
     ) throws {
         // 1. 检查 Engine
         do {
@@ -63,7 +64,8 @@ public final class GameLauncher {
             args = replaceOrAdd(args: args, key: "-screen-fullscreen", value: "1")
             args = replaceOrAdd(args: args, key: "-fullscreen", value: "")
             args = removeArgs(args: args, keys: ["-window"])
-        } else {
+        } else if game.engine == .unity {
+            // 只对 Unity 游戏添加 -screen-fullscreen 参数
             args = replaceOrAdd(args: args, key: "-screen-fullscreen", value: "0")
         }
 
@@ -76,13 +78,17 @@ public final class GameLauncher {
         print("🚀 启动 \(game.name) (\(game.engine.displayName))")
         print("📁 路径: \(game.path.path)")
         print("⚙️  参数: \(args.joined(separator: " "))")
+        if audio.latencyMs != nil || audio.disableHardwareAcceleration {
+            print("🔊 音频配置: latency=\(audio.latencyMs ?? 60)ms, hw=\(audio.disableHardwareAcceleration ? "off" : "on")")
+        }
 
         do {
             try engine.runWine(
                 prefix: prefix,
                 executable: game.executable,
                 arguments: args,
-                workingDirectory: game.path
+                workingDirectory: game.path,
+                audio: audio
             )
         } catch {
             throw LaunchError.launchFailed(error.localizedDescription)
