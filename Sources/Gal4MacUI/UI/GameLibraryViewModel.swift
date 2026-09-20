@@ -11,6 +11,8 @@ final class GameLibraryViewModel: ObservableObject {
     @Published var lastError: String?
     @Published var showingAddLibrary = false
     @Published var showingAddGame = false
+    @Published var showingImportGame = false
+    @Published var showingSavesFor: Game?
     @Published var launchingGameId: UUID?
 
     private let manager = LibraryManager()
@@ -99,6 +101,9 @@ final class GameLibraryViewModel: ObservableObject {
                 if !games.contains(where: { $0.path == game.path }) {
                     games.append(game)
                 }
+                lastError = "✓ 已导入: \(game.name) (\(game.engine.displayName))"
+            } else {
+                lastError = "未检测到支持的引擎。请确认选择的是游戏根目录。"
             }
         } catch {
             lastError = error.localizedDescription

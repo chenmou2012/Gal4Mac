@@ -91,14 +91,20 @@ struct GameCardView: View {
         }
         .contextMenu {
             Button {
-                NSWorkspace.shared.activateFileViewerSelecting([game.path])
-            } label: {
-                Label("在 Finder 中显示", systemImage: "folder")
-            }
-            Button {
                 library.launch(game)
             } label: {
                 Label("启动", systemImage: "play.fill")
+            }
+            Button {
+                library.showingSavesFor = game
+            } label: {
+                Label("存档管理", systemImage: "tray.full")
+            }
+            Divider()
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([game.path])
+            } label: {
+                Label("在 Finder 中显示", systemImage: "folder")
             }
             Divider()
             Button(role: .destructive) {

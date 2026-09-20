@@ -35,6 +35,13 @@ struct ContentView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
+                    library.showingImportGame = true
+                } label: {
+                    Label("导入游戏", systemImage: "square.and.arrow.down")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
                     showingSettings = true
                 } label: {
                     Label("设置", systemImage: "gear")
@@ -43,6 +50,14 @@ struct ContentView: View {
         }
         .sheet(isPresented: $library.showingAddLibrary) {
             AddLibrarySheet()
+                .environmentObject(library)
+        }
+        .sheet(isPresented: $library.showingImportGame) {
+            ImportGameSheet()
+                .environmentObject(library)
+        }
+        .sheet(item: $library.showingSavesFor) { game in
+            SaveManagerSheet(game: game)
                 .environmentObject(library)
         }
         .sheet(isPresented: $showingSettings) {
@@ -130,6 +145,12 @@ struct ContentView: View {
                     Label("添加库", systemImage: "folder.badge.plus")
                 }
                 .buttonStyle(.borderedProminent)
+
+                Button {
+                    library.showingImportGame = true
+                } label: {
+                    Label("导入游戏", systemImage: "square.and.arrow.down")
+                }
 
                 Button {
                     library.scanAll()

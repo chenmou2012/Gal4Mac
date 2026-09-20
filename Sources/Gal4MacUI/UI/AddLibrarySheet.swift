@@ -13,7 +13,7 @@ struct AddLibrarySheet: View {
             Text("添加库路径")
                 .font(.title2.bold())
 
-            Text("选择包含 galgame 的根目录。\n可以是本地磁盘、外接硬盘或网络盘。")
+            Text("选择包含游戏的根目录\n可以是本地磁盘、外接硬盘或网络盘。")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -23,22 +23,6 @@ struct AddLibrarySheet: View {
                     .onSubmit { addLibrary() }
                 Button("选择…") {
                     selectFolder()
-                }
-            }
-
-            // 预设路径快捷选择
-            VStack(alignment: .leading, spacing: 4) {
-                Text("快捷选择")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                HStack {
-                    ForEach(quickPaths, id: \.self) { p in
-                        Button(p.lastPathComponent) {
-                            path = p.path
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
                 }
             }
 
@@ -58,29 +42,12 @@ struct AddLibrarySheet: View {
         .frame(width: 480)
     }
 
-    private var quickPaths: [URL] {
-        var paths: [URL] = []
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        paths.append(home.appendingPathComponent("Games/Gal"))
-        paths.append(home.appendingPathComponent("Games"))
-        paths.append(home.appendingPathComponent("Downloads"))
-
-        // 添加已挂载的外接磁盘
-        if let volumes = try? FileManager.default.contentsOfDirectory(
-            at: URL(fileURLWithPath: "/Volumes"),
-            includingPropertiesForKeys: nil
-        ) {
-            paths.append(contentsOf: volumes.filter { $0.lastPathComponent != "Macintosh HD" })
-        }
-        return paths
-    }
-
     private func selectFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "选择库路径"
+        panel.prompt = "选择包含游戏的根目录"
         if panel.runModal() == .OK, let url = panel.url {
             path = url.path
         }
