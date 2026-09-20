@@ -110,6 +110,12 @@ final class GameLibraryViewModel: ObservableObject {
         }
     }
 
+    /// 从压缩包导入（解压后导入）
+    func importArchive(at url: URL) {
+        // 这个方法现在主要由 ImportGameSheet 直接处理
+        addGame(at: url)
+    }
+
     /// 启动游戏
     func launch(_ game: Game) {
         launchingGameId = game.id
