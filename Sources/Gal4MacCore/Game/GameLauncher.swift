@@ -33,14 +33,15 @@ public final class GameLauncher {
 
     public init() {}
 
-    /// 启动游戏
+    /// 启动游戏（同步版本，等待进程结束）
     public func launch(
         game: Game,
         fullscreen: Bool = false,
         width: Int = 1280,
         height: Int = 720,
         additionalArgs: [String] = [],
-        audio: EngineManager.AudioConfig = EngineManager.AudioConfig()
+        audio: EngineManager.AudioConfig = EngineManager.AudioConfig(),
+        onExit: ((TimeInterval) -> Void)? = nil
     ) throws {
         // 1. 检查 Engine
         do {
@@ -52,15 +53,11 @@ public final class GameLauncher {
         // 2. 准备 Wine prefix
         let prefix = engine.winePrefix(for: game.name)
 
-        // 3. 自动应用音频优化到 Wine prefix（解决杂音问题）
-        // 这是经验证最有效的方法：
-        // - HKCU\Software\Wine\DirectSound\HardwareAcceleration=Emulation
-        // - 配合 PULSE_LATENCY_MSEC 环境变量
-        // 注意：不要用 WINEDLLOVERRIDES="dsound=n,b" 会导致无声音
+        // 3. 自动应用音频优化到 Wine prefix
         do {
             try engine.applyAudioOptimizations(prefix: prefix)
         } catch {
-            // 忽略错误，不影响游戏启动
+            // 忽略错误
         }
 
         // 4. 检查可执行文件
@@ -79,7 +76,6 @@ public final class GameLauncher {
             args = replaceOrAdd(args: args, key: "-fullscreen", value: "")
             args = removeArgs(args: args, keys: ["-window"])
         } else if game.engine == .unity {
-            // 只对 Unity 游戏添加 -screen-fullscreen 参数
             args = replaceOrAdd(args: args, key: "-screen-fullscreen", value: "0")
         }
 
@@ -87,13 +83,12 @@ public final class GameLauncher {
 
         // 6. 启动
         print("🚀 启动 \(game.name) (\(game.engine.displayName))")
-        print("📁 路径: \(game.path.path)")
-        print("⚙️  参数: \(args.joined(separator: " "))")
         if audio.latencyMs != nil {
             print("🔊 音频延迟: \(audio.latencyMs!)ms")
         }
 
         do {
+            let startTime = Date()
             try engine.runWine(
                 prefix: prefix,
                 executable: game.executable,
@@ -101,8 +96,78 @@ public final class GameLauncher {
                 workingDirectory: game.path,
                 audio: audio
             )
+            // 进程退出，累加时长
+            let elapsed = Date().timeIntervalSince(startTime)
+            onExit?(elapsed)
         } catch {
             throw LaunchError.launchFailed(error.localizedDescription)
+        }
+    }
+
+    /// 启动游戏（异步版本，立即返回）
+    /// - Parameters:
+    ///   - onExit: 进程退出时的回调（返回游玩秒数）
+    public func launchAsync(
+        game: Game,
+        fullscreen: Bool = false,
+        width: Int = 1280,
+        height: Int = 720,
+        additionalArgs: [String] = [],
+        audio: EngineManager.AudioConfig = EngineManager.AudioConfig(),
+        onExit: @escaping (TimeInterval) -> Void
+    ) throws {
+        // 1. 检查 Engine
+        do {
+            try engine.validate()
+        } catch {
+            throw LaunchError.engineNotReady
+        }
+
+        // 2. 准备 Wine prefix
+        let prefix = engine.winePrefix(for: game.name)
+
+        // 3. 自动应用音频优化
+        do {
+            try engine.applyAudioOptimizations(prefix: prefix)
+        } catch {}
+
+        // 4. 检查可执行文件
+        let exePath = game.executablePath
+        guard FileManager.default.fileExists(atPath: exePath.path) else {
+            throw LaunchError.executableMissing(game.executable)
+        }
+
+        // 5. 准备启动参数
+        var args = game.launchArgs.isEmpty
+            ? game.engine.defaultLaunchArgs(width: width, height: height)
+            : game.launchArgs
+
+        if fullscreen {
+            args = replaceOrAdd(args: args, key: "-screen-fullscreen", value: "1")
+            args = replaceOrAdd(args: args, key: "-fullscreen", value: "")
+            args = removeArgs(args: args, keys: ["-window"])
+        } else if game.engine == .unity {
+            args = replaceOrAdd(args: args, key: "-screen-fullscreen", value: "0")
+        }
+
+        args.append(contentsOf: additionalArgs)
+
+        // 6. 异步启动
+        let (process, startTime) = try engine.runWineAsync(
+            prefix: prefix,
+            executable: game.executable,
+            arguments: args,
+            workingDirectory: game.path,
+            audio: audio
+        )
+
+        // 7. 后台监控进程退出
+        DispatchQueue.global(qos: .background).async {
+            process.waitUntilExit()
+            let elapsed = Date().timeIntervalSince(startTime)
+            DispatchQueue.main.async {
+                onExit(elapsed)
+            }
         }
     }
 

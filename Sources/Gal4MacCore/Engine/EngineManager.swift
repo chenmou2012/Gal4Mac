@@ -248,7 +248,7 @@ public final class EngineManager {
         }
     }
 
-    /// 执行 wine 命令
+    /// 执行 wine 命令（前台运行，等待进程退出）
     @discardableResult
     public static func runWine(
         prefix: URL,
@@ -278,5 +278,30 @@ public final class EngineManager {
         try process.run()
         process.waitUntilExit()
         return process.terminationStatus
+    }
+
+    /// 异步启动 wine，监控进程并返回退出事件
+    /// - Returns: AsyncStream<Date?> 发射进程启动和退出事件
+    public static func runWineAsync(
+        prefix: URL,
+        executable: String,
+        arguments: [String] = [],
+        workingDirectory: URL? = nil,
+        audio: AudioConfig = AudioConfig()
+    ) throws -> (Process, Date) {
+        try validate()
+
+        let process = Process()
+        process.executableURL = wineExecutable
+        process.arguments = [executable] + arguments
+        process.environment = launchEnvironment(prefix: prefix, audio: audio)
+
+        if let workDir = workingDirectory {
+            process.currentDirectoryURL = workDir
+        }
+
+        let startTime = Date()
+        try process.run()
+        return (process, startTime)
     }
 }

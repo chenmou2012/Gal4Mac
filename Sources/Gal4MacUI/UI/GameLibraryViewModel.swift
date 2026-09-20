@@ -113,20 +113,33 @@ final class GameLibraryViewModel: ObservableObject {
     /// 启动游戏
     func launch(_ game: Game) {
         launchingGameId = game.id
-        Task.detached { [weak self] in
-            guard let self else { return }
-            do {
-                try self.launcher.launch(game: game)
-                await MainActor.run {
+        do {
+            try launcher.launchAsync(game: game) { [weak self] elapsed in
+                guard let self else { return }
+                Task { @MainActor in
                     self.launchingGameId = nil
-                }
-            } catch {
-                await MainActor.run {
-                    self.lastError = error.localizedDescription
-                    self.launchingGameId = nil
+                    // 累加游玩时长
+                    if let index = self.games.firstIndex(where: { $0.id == game.id }) {
+                        self.games[index].playtime += elapsed
+                        self.games[index].lastPlayed = Date()
+                        try? self.manager.saveLibrary(self.games)
+                    }
                 }
             }
+        } catch {
+            launchingGameId = nil
+            lastError = error.localizedDescription
         }
+    }
+
+    /// 总游戏时长
+    var totalPlaytime: TimeInterval {
+        games.reduce(0) { $0 + $1.playtime }
+    }
+
+    /// 总游戏时长（人类可读）
+    var totalPlaytimeDescription: String {
+        Game.formatDuration(totalPlaytime)
     }
 
     /// 移除游戏
@@ -134,6 +147,20 @@ final class GameLibraryViewModel: ObservableObject {
         games.removeAll { $0.id == game.id }
         do {
             try manager.removeGame(id: game.id)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// 更新游戏评分
+    func updateRating(for game: Game, rating: Int) {
+        guard let index = games.firstIndex(where: { $0.id == game.id }) else { return }
+        var updated = games[index]
+        updated.rating = rating
+        updated.userRated = rating > 0
+        games[index] = updated
+        do {
+            try manager.saveLibrary(games)
         } catch {
             lastError = error.localizedDescription
         }

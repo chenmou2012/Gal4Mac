@@ -41,12 +41,23 @@ struct GameCardView: View {
                     Text(game.engine.displayName)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
+                    StarRatingDisplay(rating: game.rating)
                 }
 
                 HStack {
                     Text(game.sizeDescription)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                    if game.playtime > 0 {
+                        Text("·")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(game.playtimeDescription)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .help("累计游戏时长")
+                    }
                     Spacer()
                     if !library.isAccessible(game.path) {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -99,6 +110,17 @@ struct GameCardView: View {
                 library.showingSavesFor = game
             } label: {
                 Label("存档管理", systemImage: "tray.full")
+            }
+            Divider()
+            Button {
+                library.updateRating(for: game, rating: 5)
+            } label: {
+                Label("标记为完美运行", systemImage: "star.fill")
+            }
+            Button {
+                library.updateRating(for: game, rating: 0)
+            } label: {
+                Label("清除评分", systemImage: "star.slash")
             }
             Divider()
             Button {

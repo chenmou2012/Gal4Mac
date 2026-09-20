@@ -163,15 +163,34 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var gameGrid: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 16) {
-                ForEach(library.games) { game in
-                    GameCardView(game: game)
-                        .environmentObject(library)
-                }
+    // 总统计栏
+    private var statsBar: some View {
+        HStack {
+            Label("\(library.games.count) 个游戏", systemImage: "gamecontroller.fill")
+            Spacer()
+            if library.totalPlaytime > 0 {
+                Label("总时长 \(library.totalPlaytimeDescription)", systemImage: "clock.fill")
+                    .foregroundStyle(.secondary)
             }
-            .padding()
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal)
+        .padding(.bottom, 4)
+    }
+
+    private var gameGrid: some View {
+        VStack(spacing: 0) {
+            statsBar
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 16) {
+                    ForEach(library.games) { game in
+                        GameCardView(game: game)
+                            .environmentObject(library)
+                    }
+                }
+                .padding()
+            }
         }
     }
 }

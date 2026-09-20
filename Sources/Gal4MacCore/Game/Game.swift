@@ -11,6 +11,31 @@ public struct Game: Codable, Identifiable, Equatable {
     public var detectedAt: Date
     public var lastPlayed: Date?
     public var notes: String
+    public var rating: Int  // 1-5 星
+    public var userRated: Bool  // 用户是否自定义评分
+    public var playtime: TimeInterval  // 累计游戏时长（秒）
+
+    // 自定义解码，提供向后兼容（旧 JSON 没有新字段时使用默认值）
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(UUID.self, forKey: .id)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.path = try c.decode(URL.self, forKey: .path)
+        self.executable = try c.decode(String.self, forKey: .executable)
+        self.engine = try c.decode(EngineType.self, forKey: .engine)
+        self.launchArgs = (try? c.decode([String].self, forKey: .launchArgs)) ?? []
+        self.detectedAt = (try? c.decode(Date.self, forKey: .detectedAt)) ?? Date()
+        self.lastPlayed = try? c.decode(Date.self, forKey: .lastPlayed)
+        self.notes = (try? c.decode(String.self, forKey: .notes)) ?? ""
+        self.userRated = (try? c.decode(Bool.self, forKey: .userRated)) ?? false
+        self.playtime = (try? c.decode(TimeInterval.self, forKey: .playtime)) ?? 0
+        // rating 默认为引擎兼容性分数
+        if let r = try? c.decode(Int.self, forKey: .rating) {
+            self.rating = r
+        } else {
+            self.rating = Game.defaultRating(for: self.engine)
+        }
+    }
 
     public init(
         id: UUID = UUID(),
@@ -21,7 +46,10 @@ public struct Game: Codable, Identifiable, Equatable {
         launchArgs: [String] = [],
         detectedAt: Date = Date(),
         lastPlayed: Date? = nil,
-        notes: String = ""
+        notes: String = "",
+        rating: Int? = nil,
+        userRated: Bool = false,
+        playtime: TimeInterval = 0
     ) {
         self.id = id
         self.name = name
@@ -32,6 +60,21 @@ public struct Game: Codable, Identifiable, Equatable {
         self.detectedAt = detectedAt
         self.lastPlayed = lastPlayed
         self.notes = notes
+        self.userRated = userRated
+        self.playtime = playtime
+        // 根据兼容性给默认评分
+        self.rating = rating ?? Game.defaultRating(for: engine)
+    }
+
+    /// 根据引擎兼容性给默认评分（1-5）
+    public static func defaultRating(for engine: EngineType) -> Int {
+        switch engine.compatibility {
+        case .excellent: return 5
+        case .good: return 4
+        case .native: return 5
+        case .experimental: return 3
+        case .unsupported: return 1
+        }
     }
 
     /// 可执行文件的完整路径
@@ -46,6 +89,29 @@ public struct Game: Codable, Identifiable, Equatable {
         formatter.allowedUnits = [.useGB, .useMB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: size)
+    }
+
+    /// 游戏时长（人类可读）
+    public var playtimeDescription: String {
+        Game.formatDuration(playtime)
+    }
+
+    /// 格式化时长
+    public static func formatDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        if total < 60 {
+            return "\(total)秒"
+        } else if total < 3600 {
+            return "\(total / 60)分钟"
+        } else if total < 86400 {
+            let hours = total / 3600
+            let mins = (total % 3600) / 60
+            return mins == 0 ? "\(hours)小时" : "\(hours)小时\(mins)分"
+        } else {
+            let days = total / 86400
+            let hours = (total % 86400) / 3600
+            return hours == 0 ? "\(days)天" : "\(days)天\(hours)小时"
+        }
     }
 
     private func directorySize(at url: URL) -> Int64 {
