@@ -28,6 +28,12 @@ public struct CLI {
                 try runLaunch(args: Array(args.dropFirst(2)))
             case "remove":
                 try runRemove(args: Array(args.dropFirst(2)))
+            case "libraries":
+                try runLibraries()
+            case "add-library":
+                try runAddLibrary(args: Array(args.dropFirst(2)))
+            case "remove-library":
+                try runRemoveLibrary(args: Array(args.dropFirst(2)))
             case "help", "-h", "--help":
                 printUsage()
             default:
@@ -61,11 +67,15 @@ public struct CLI {
         命令:
           version              显示版本
           doctor               检查环境（Engine 等）
-          scan <dir>           扫描目录添加游戏到库
+          scan                 扫描所有已配置的库
+          scan <dir>           扫描指定目录并添加到库
           list                 列出已识别的游戏
           info <name>          显示游戏详细信息
           launch <name>        启动游戏（按名称匹配）
           remove <name>        从库中移除游戏
+          libraries            显示配置的库路径
+          add-library <dir>    添加库路径
+          remove-library <dir> 移除库路径
           help                 显示此帮助
 
         启动选项:
@@ -75,16 +85,15 @@ public struct CLI {
           --audio-lowlatency   低延迟音频（减少杂音，推荐）
           --audio-highquality  高质量音频（更稳定，可能有轻微延迟）
           --audio-latency <ms> 自定义音频延迟（毫秒）
-          --no-audio-hw        禁用音频硬件加速（解决严重杂音）
 
         示例:
+          gal4mac scan
           gal4mac scan ~/Games
           gal4mac list
           gal4mac launch CLANNAD
           gal4mac info Aokana
           gal4mac launch CLANNAD --fullscreen --width 1920 --height 1080
-          gal4mac launch CLANNAD --audio-lowlatency
-          gal4mac launch Aokana --audio-latency 200 --no-audio-hw
+          gal4mac add-library /Volumes/ExternalHDD/GalGames
 
         """)
     }
@@ -320,5 +329,48 @@ public struct CLI {
         } else {
             print("⚠️  未找到匹配 '\(name)' 的游戏")
         }
+    }
+
+    static func runLibraries() throws {
+        let manager = LibraryManager()
+        let config = manager.loadConfig()
+
+        print("📚 已配置的库路径 (\(config.libraryPaths.count)):")
+        if config.libraryPaths.isEmpty {
+            print("   (无)")
+        }
+        for (i, path) in config.libraryPaths.enumerated() {
+            let accessible = manager.isPathAccessible(path) ? "✓" : "⚠️ 不可访问"
+            print("  \(i + 1). \(path.path)  \(accessible)")
+        }
+        if let last = config.lastScanAt {
+            print("\n🕐 上次扫描: \(last.formatted())")
+        }
+    }
+
+    static func runAddLibrary(args: [String]) throws {
+        guard let pathStr = args.first else {
+            print("❌ 用法: gal4mac add-library <directory>")
+            exit(1)
+        }
+
+        let url = URL(fileURLWithPath: (pathStr as NSString).expandingTildeInPath)
+        let manager = LibraryManager()
+        let config = try manager.addLibraryPath(url)
+        print("✓ 已添加库路径: \(url.path)")
+        print("  当前共有 \(config.libraryPaths.count) 个库")
+    }
+
+    static func runRemoveLibrary(args: [String]) throws {
+        guard let pathStr = args.first else {
+            print("❌ 用法: gal4mac remove-library <directory>")
+            exit(1)
+        }
+
+        let url = URL(fileURLWithPath: (pathStr as NSString).expandingTildeInPath)
+        let manager = LibraryManager()
+        let config = try manager.removeLibraryPath(url)
+        print("✓ 已移除库路径: \(url.path)")
+        print("  当前共有 \(config.libraryPaths.count) 个库")
     }
 }

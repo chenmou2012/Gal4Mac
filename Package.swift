@@ -11,7 +11,11 @@ let package = Package(
     products: [
         .executable(
             name: "gal4mac",
-            targets: ["Gal4Mac"]
+            targets: ["Gal4MacCLI"]
+        ),
+        .executable(
+            name: "Gal4Mac",
+            targets: ["Gal4MacUI"]
         ),
         .library(
             name: "Gal4MacCore",
@@ -19,11 +23,19 @@ let package = Package(
         ),
     ],
     targets: [
+        // CLI 工具
         .executableTarget(
-            name: "Gal4Mac",
+            name: "Gal4MacCLI",
             dependencies: ["Gal4MacCore"],
-            path: "Sources/Gal4Mac"
+            path: "Sources/Gal4MacCLI"
         ),
+        // SwiftUI UI
+        .executableTarget(
+            name: "Gal4MacUI",
+            dependencies: ["Gal4MacCore"],
+            path: "Sources/Gal4MacUI"
+        ),
+        // 核心库
         .target(
             name: "Gal4MacCore",
             path: "Sources/Gal4MacCore"
