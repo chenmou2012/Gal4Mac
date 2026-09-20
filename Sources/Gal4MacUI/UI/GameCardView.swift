@@ -37,7 +37,7 @@ struct GameCardView: View {
                     .truncationMode(.tail)
 
                 HStack(spacing: 4) {
-                    Text(game.engine.compatibility.emoji)
+                    EngineIcon(engine: game.engine, size: 12, color: Color.secondary)
                     Text(game.engine.displayName)
                         .font(.caption)
                         .foregroundStyle(.secondary)
