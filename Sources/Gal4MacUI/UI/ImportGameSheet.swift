@@ -46,7 +46,6 @@ struct ImportGameSheet: View {
                     HStack {
                         Text("引擎:")
                             .foregroundStyle(.secondary)
-                        Text(detectedEngine.compatibility.emoji)
                         Text(detectedEngine.displayName)
                             .fontWeight(.medium)
                     }
