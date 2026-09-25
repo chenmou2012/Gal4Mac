@@ -9,10 +9,10 @@ struct DownloadSheet: View {
 
     @State private var urlString: String = ""
     @State private var isDownloading = false
+    @State private var isCancelling = false
     @State private var progressMessage: String = ""
     @State private var progress: Double = 0
     @State private var speedMessage: String = ""
-    @State private var downloader = Aria2Downloader()
     @State private var downloadAndExtract = DownloadAndExtract()
 
     private let aria2Installed = Aria2Downloader.isInstalled()
@@ -87,11 +87,11 @@ struct DownloadSheet: View {
 
             HStack {
                 if isDownloading {
-                    Button("取消") {
-                        downloader.cancel()
-                        isDownloading = false
-                        progressMessage = ""
+                    Button(isCancelling ? "正在取消…" : "取消下载") {
+                        isCancelling = true
+                        downloadAndExtract.cancel()
                     }
+                    .disabled(isCancelling)
                 } else {
                     Button("取消") { dismiss() }
                         .keyboardShortcut(.cancelAction)
@@ -114,6 +114,7 @@ struct DownloadSheet: View {
         guard !url.isEmpty else { return }
 
         isDownloading = true
+        isCancelling = false
         progress = 0
         progressMessage = "准备下载..."
         speedMessage = ""
@@ -138,6 +139,11 @@ struct DownloadSheet: View {
             },
             onComplete: { result in
                 isDownloading = false
+                if isCancelling {
+                    isCancelling = false
+                    progressMessage = "已取消"
+                    return
+                }
                 switch result {
                 case .success(let gameDir):
                     progress = 1.0

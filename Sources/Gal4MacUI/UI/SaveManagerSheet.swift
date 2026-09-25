@@ -11,6 +11,8 @@ struct SaveManagerSheet: View {
     @State private var saveLocations: [SaveManager.SaveLocation] = []
     @State private var isLoading = false
     @State private var message: String?
+    @State private var showingSteamCloud = false
+    @State private var pendingImport: SaveArchiveManager.ImportPreview?
 
     private let saveManager = SaveManager()
 
@@ -64,6 +66,9 @@ struct SaveManagerSheet: View {
                 Button("导入存档…") {
                     importSaves()
                 }
+                Button("从 Steam 云端下载…") {
+                    showingSteamCloud = true
+                }
                 Spacer()
                 Button("关闭") { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -73,6 +78,17 @@ struct SaveManagerSheet: View {
         .frame(width: 540, height: 360)
         .onAppear {
             loadSaves()
+        }
+        .sheet(isPresented: $showingSteamCloud, onDismiss: loadSaves) {
+            SteamCloudSheet(game: game)
+        }
+        .sheet(item: $pendingImport) { preview in
+            SaveImportReviewSheet(game: game, initialPreview: preview) { result in
+                loadSaves()
+                message = result.backupDirectory == nil
+                    ? "✓ 已导入 \(result.fileCount) 个文件"
+                    : "✓ 已导入 \(result.fileCount) 个文件；原文件备份于 \(result.backupDirectory!.path)"
+            }
         }
     }
 
@@ -115,16 +131,19 @@ struct SaveManagerSheet: View {
         panel.canChooseFiles = true
         panel.prompt = "导入"
         if panel.runModal() == .OK, let url = panel.url {
-            Task.detached { [game] in
+            guard let directory = saveManager.suggestedImportDirectory(for: game) else {
+                message = "无法识别存档位置，请先添加游戏目录"
+                return
+            }
+            Task.detached {
                 do {
-                    let count = try SaveManager().importSaves(from: url, to: game)
+                    let preview = try SaveManager().previewImport(from: url, to: directory)
                     await MainActor.run {
-                        message = "✓ 已导入 \(count) 个文件"
-                        loadSaves()
+                        pendingImport = preview
                     }
                 } catch {
                     await MainActor.run {
-                        message = "✗ 导入失败: \(error.localizedDescription)"
+                        message = "✗ 无法读取存档包：\(error.localizedDescription)"
                     }
                 }
             }

@@ -38,7 +38,7 @@ struct ContentView: View {
                 Button {
                     library.showingImportGame = true
                 } label: {
-                    Label("导入游戏", systemImage: "square.and.arrow.down")
+                    Label("导入游戏", systemImage: "plus")
                 }
             }
             ToolbarItem(placement: .primaryAction) {
@@ -162,7 +162,7 @@ struct ContentView: View {
                 Button {
                     library.showingImportGame = true
                 } label: {
-                    Label("导入游戏", systemImage: "square.and.arrow.down")
+                    Label("导入游戏", systemImage: "plus")
                 }
 
                 Button {

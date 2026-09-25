@@ -118,13 +118,7 @@ public struct EngineDetector {
         let hasXp3 = containsFile(matching: ".xp3", at: dir, fm: fm)
         let hasTvpgl = fileExists(named: "tvpglfr.dat", at: dir, fm: fm)
 
-        // KiriKiri 通常有 video, image, system 等子目录
-        let hasSystemDir = (try? fm.contentsOfDirectory(
-            at: dir.appendingPathComponent("system"),
-            includingPropertiesForKeys: nil
-        )) != nil
-
-        if hasKrkrExe || hasTvpgl || hasXp3 || hasSystemDir {
+        if hasKrkrExe || hasTvpgl || hasXp3 {
             // 区分 KiriKiri (2) 和 KiriKiri Z
             // 简化处理，统一返回 .kirikiri
             return .kirikiri

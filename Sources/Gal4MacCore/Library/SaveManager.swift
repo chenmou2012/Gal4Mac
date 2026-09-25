@@ -21,7 +21,11 @@ public final class SaveManager {
         }
     }
 
-    public init() {}
+    private let archive: SaveArchiveManager
+
+    public init(backupRoot: URL = LibraryManager.configDirectory.appendingPathComponent("SaveBackups", isDirectory: true)) {
+        archive = SaveArchiveManager(backupRoot: backupRoot)
+    }
 
     /// 存档位置信息
     public struct SaveLocation {
@@ -49,87 +53,27 @@ public final class SaveManager {
 
     /// 导出存档到 zip 文件
     public func exportSaves(from locations: [SaveLocation], to outputURL: URL) throws {
-        let fm = FileManager.default
-
-        // 创建临时目录
-        let tempDir = fm.temporaryDirectory.appendingPathComponent("gal4mac_export_\(UUID().uuidString)")
-        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: tempDir) }
-
-        // 复制所有存档到临时目录
-        for (index, loc) in locations.enumerated() {
-            let dest = tempDir.appendingPathComponent("save_\(index)_\(loc.path.lastPathComponent)")
-            do {
-                try fm.copyItem(at: loc.path, to: dest)
-            } catch {
-                throw SaveError.exportFailed(error.localizedDescription)
-            }
-        }
-
-        // 打包为 zip（用 ditto）
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-c", "-k", "--sequesterRsrc", "--keepParent", tempDir.path, outputURL.path]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            throw SaveError.exportFailed("ditto 失败")
-        }
+        guard locations.count == 1 else { throw SaveError.exportFailed("请选择一个存档目录") }
+        try archive.export(directory: locations[0].path, to: outputURL)
     }
 
-    /// 从 zip 文件导入存档
+    public func suggestedImportDirectory(for game: Game) -> URL? {
+        locateSaves(for: game).first?.path
+            ?? saveLocationCandidates(for: game.engine, gameDir: game.path, gameName: game.name).first
+    }
+
+    public func previewImport(from zipURL: URL, to directory: URL) throws -> SaveArchiveManager.ImportPreview {
+        try archive.preview(zipURL: zipURL, targetDirectory: directory)
+    }
+
+    public func importSaves(_ preview: SaveArchiveManager.ImportPreview) throws -> SaveArchiveManager.ImportResult {
+        try archive.importSaves(preview)
+    }
+
+    /// 保留旧 API；目标目录由引擎规则选择。
     public func importSaves(from zipURL: URL, to game: Game) throws -> Int {
-        let fm = FileManager.default
-
-        // 解压到临时目录
-        let tempDir = fm.temporaryDirectory.appendingPathComponent("gal4mac_import_\(UUID().uuidString)")
-        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: tempDir) }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-x", "-k", zipURL.path, tempDir.path]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            throw SaveError.importFailed("解压失败")
-        }
-
-        // 查找存档位置
-        let locations = saveLocationCandidates(for: game.engine, gameDir: game.path, gameName: game.name)
-
-        var imported = 0
-        // 简单策略：复制临时目录下的所有文件到第一个可写位置
-        guard let target = locations.first else {
-            throw SaveError.saveLocationUnknown
-        }
-
-        // 确保目标目录存在
-        if !fm.fileExists(atPath: target.path) {
-            try fm.createDirectory(at: target, withIntermediateDirectories: true)
-        }
-
-        // 复制文件
-        if let contents = try? fm.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil) {
-            for item in contents {
-                let dest = target.appendingPathComponent(item.lastPathComponent)
-                if fm.fileExists(atPath: dest.path) {
-                    try fm.removeItem(at: dest)
-                }
-                try fm.copyItem(at: item, to: dest)
-                imported += 1
-            }
-        }
-
-        return imported
+        guard let directory = suggestedImportDirectory(for: game) else { throw SaveError.saveLocationUnknown }
+        return try importSaves(previewImport(from: zipURL, to: directory)).fileCount
     }
 
     // MARK: - 私有方法
@@ -150,6 +94,7 @@ public final class SaveManager {
         case .unity:
             // Unity 多种多样，尝试常见位置
             return [
+                gameDir.appendingPathComponent("SaveData"),
                 gameDir.appendingPathComponent("Saves"),
                 gameDir.appendingPathComponent("Save"),
                 home.appendingPathComponent("AppData/LocalLow/\(gameName)")

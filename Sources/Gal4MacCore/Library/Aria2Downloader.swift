@@ -126,8 +126,7 @@ public final class Aria2Downloader {
             "-j", String(connections), // 最大并发下载数
             "--summary-interval=1",    // 1秒输出一次进度
             "--console-log-level=warn",
-            "-c",                      // 断点续传
-            "--check-certificate=false"
+            "-c"                       // 断点续传；HTTPS 保持 aria2 默认的证书校验
         ]
 
         let outputPipe = Pipe()
@@ -229,8 +228,14 @@ public final class Aria2Downloader {
 public final class DownloadAndExtract {
     private let downloader = Aria2Downloader()
     private let extractor = ArchiveExtractor()
+    private var isCancelled = false
 
     public init() {}
+
+    public func cancel() {
+        isCancelled = true
+        downloader.cancel()
+    }
 
     public enum CombinedError: LocalizedError {
         case aria2NotInstalled
@@ -261,6 +266,7 @@ public final class DownloadAndExtract {
         onProgress: @escaping (String) -> Void = { _ in },
         onComplete: @escaping (Result<URL, Error>) -> Void
     ) {
+        isCancelled = false
         guard Aria2Downloader.isInstalled() else {
             onComplete(.failure(CombinedError.aria2NotInstalled))
             return
@@ -293,6 +299,10 @@ public final class DownloadAndExtract {
                 onComplete: { result in
                 switch result {
                 case .success(let downloadedFile):
+                    if self.isCancelled {
+                        onComplete(.failure(CombinedError.downloadFailed("用户取消")))
+                        return
+                    }
                     onProgress("下载完成，正在解压...")
 
                     // 在后台线程解压
@@ -306,8 +316,12 @@ public final class DownloadAndExtract {
                             try? FileManager.default.removeItem(at: downloadedFile)
 
                             DispatchQueue.main.async {
-                                onProgress("解压完成")
-                                onComplete(.success(gameDir))
+                                if self.isCancelled {
+                                    onComplete(.failure(CombinedError.downloadFailed("用户取消")))
+                                } else {
+                                    onProgress("解压完成")
+                                    onComplete(.success(gameDir))
+                                }
                             }
                         } catch {
                             DispatchQueue.main.async {

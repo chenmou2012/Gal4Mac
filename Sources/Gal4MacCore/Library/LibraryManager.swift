@@ -28,6 +28,16 @@ public struct LibraryConfig: Codable, Equatable {
 /// 支持多个库路径（本地磁盘、外接硬盘、网络盘）
 public final class LibraryManager {
 
+    public enum LibraryError: LocalizedError {
+        case invalidExecutable
+
+        public var errorDescription: String? {
+            switch self {
+            case .invalidExecutable: return "请选择游戏目录中的 .exe 可执行文件"
+            }
+        }
+    }
+
     /// 配置文件目录
     public static var configDirectory: URL {
         let appSupport = FileManager.default.urls(
@@ -198,18 +208,31 @@ public final class LibraryManager {
 
     /// 手动添加单个游戏
     @discardableResult
-    public func addGame(at path: URL) throws -> Game? {
-        let engine = detector.detect(at: path)
-        guard engine != .unknown,
-              let executable = detector.findExecutable(at: path, engine: engine) else {
+    public func addGame(at path: URL, engine selectedEngine: EngineType? = nil, executable selectedExecutable: String? = nil) throws -> Game? {
+        let engine = selectedEngine ?? detector.detect(at: path)
+        guard let executable = selectedExecutable ?? detector.findExecutable(at: path, engine: engine) else {
             return nil
         }
 
+        guard Self.isValidExecutable(executable, in: path) else {
+            throw LibraryError.invalidExecutable
+        }
+
+        let existing = loadLibrary().first { $0.path.standardizedFileURL == path.standardizedFileURL }
+
         let game = Game(
-            name: path.lastPathComponent,
+            id: existing?.id ?? UUID(),
+            name: existing?.name ?? path.lastPathComponent,
             path: path,
             executable: executable,
-            engine: engine
+            engine: engine,
+            launchArgs: existing?.launchArgs ?? [],
+            detectedAt: existing?.detectedAt ?? Date(),
+            lastPlayed: existing?.lastPlayed,
+            notes: existing?.notes ?? "",
+            rating: existing?.userRated == true ? existing?.rating : nil,
+            userRated: existing?.userRated ?? false,
+            playtime: existing?.playtime ?? 0
         )
 
         var library = loadLibrary()
@@ -218,6 +241,12 @@ public final class LibraryManager {
         try saveLibrary(library)
 
         return game
+    }
+
+    static func isValidExecutable(_ executable: String, in directory: URL) -> Bool {
+        executable == URL(fileURLWithPath: executable).lastPathComponent &&
+        executable.lowercased().hasSuffix(".exe") &&
+        FileManager.default.fileExists(atPath: directory.appendingPathComponent(executable).path)
     }
 
     /// 根据名称查找游戏

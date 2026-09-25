@@ -9,8 +9,9 @@ struct ImportGameSheet: View {
     @Environment(\.dismiss) var dismiss
 
     @State private var selectedURL: URL?
-    @State private var detectedEngine: EngineType = .unknown
-    @State private var detectedExecutable: String = ""
+    @State private var selectedEngine: EngineType = .unknown
+    @State private var selectedExecutable: String = ""
+    @State private var executableOptions: [String] = []
     @State private var isExtracting = false
     @State private var extractMessage: String?
 
@@ -52,31 +53,33 @@ struct ImportGameSheet: View {
             }
 
             // 检测结果
-            if !isExtracting, let _ = selectedURL, detectedEngine != .unknown || !detectedExecutable.isEmpty {
+            if !isExtracting, selectedURL != nil {
                 VStack(alignment: .leading, spacing: 8) {
-                    Label("检测结果", systemImage: "checkmark.seal")
+                    Label("游戏配置", systemImage: "gamecontroller")
                         .font(.headline)
 
-                    HStack {
-                        Text("引擎:")
-                            .foregroundStyle(.secondary)
-                        Text(detectedEngine.displayName)
-                            .fontWeight(.medium)
-                    }
-
-                    if !detectedExecutable.isEmpty {
-                        HStack {
-                            Text("可执行文件:")
-                                .foregroundStyle(.secondary)
-                            Text(detectedExecutable)
-                                .font(.system(.callout, design: .monospaced))
+                    Picker("引擎", selection: $selectedEngine) {
+                        ForEach(EngineType.allCases, id: \.self) { engine in
+                            Text(engine.displayName).tag(engine)
                         }
                     }
 
-                    if detectedEngine == .unknown {
-                        Text("⚠️ 未识别引擎，可能不支持")
+                    if !executableOptions.isEmpty {
+                        Picker("可执行文件", selection: $selectedExecutable) {
+                            ForEach(executableOptions, id: \.self) { name in
+                                Text(name).tag(name)
+                            }
+                        }
+                    }
+
+                    if selectedEngine == .unknown {
+                        Text("未识别引擎。可以尝试通用 Wine 启动，兼容性未经验证。")
                             .foregroundStyle(.orange)
                             .font(.callout)
+                    }
+                    if executableOptions.isEmpty {
+                        Text("未找到 .exe 可执行文件")
+                            .foregroundStyle(.orange)
                     }
                 }
                 .padding(12)
@@ -93,13 +96,13 @@ struct ImportGameSheet: View {
                 Spacer()
                 Button("导入") {
                     if let url = selectedURL {
-                        library.addGame(at: url)
+                        library.addGame(at: url, engine: selectedEngine, executable: selectedExecutable)
                         dismiss()
                     }
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
-                .disabled(selectedURL == nil || detectedEngine == .unknown || isExtracting)
+                .disabled(selectedURL == nil || selectedExecutable.isEmpty || isExtracting)
             }
         }
         .padding(20)
@@ -183,11 +186,15 @@ struct ImportGameSheet: View {
     }
 
     private func detectGame(at url: URL) {
-        detectedEngine = detector.detect(at: url)
-        if let exe = detector.findExecutable(at: url, engine: detectedEngine) {
-            detectedExecutable = exe
-        } else {
-            detectedExecutable = ""
-        }
+        selectedEngine = detector.detect(at: url)
+        executableOptions = ((try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: nil
+        )) ?? [])
+            .filter { $0.pathExtension.lowercased() == "exe" }
+            .map(\.lastPathComponent)
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        selectedExecutable = detector.findExecutable(at: url, engine: selectedEngine)
+            ?? executableOptions.first ?? ""
     }
 }

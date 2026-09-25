@@ -35,10 +35,12 @@ final class GameLibraryViewModel: ObservableObject {
         Task.detached { [weak self] in
             guard let self else { return }
             do {
-                let found = try self.manager.scanAll()
+                let scanner = LibraryManager()
+                let found = try scanner.scanAll()
+                let config = scanner.loadConfig()
                 await MainActor.run {
                     self.games = found
-                    self.config = self.manager.loadConfig()
+                    self.config = config
                     self.isScanning = false
                 }
             } catch {
@@ -57,8 +59,9 @@ final class GameLibraryViewModel: ObservableObject {
         Task.detached { [weak self] in
             guard let self else { return }
             do {
-                _ = try self.manager.scan(directory: directory)
-                let library = self.manager.loadLibrary()
+                let scanner = LibraryManager()
+                _ = try scanner.scan(directory: directory)
+                let library = scanner.loadLibrary()
                 await MainActor.run {
                     self.games = library
                     self.isScanning = false
@@ -95,15 +98,17 @@ final class GameLibraryViewModel: ObservableObject {
     }
 
     /// 手动添加单个游戏
-    func addGame(at url: URL) {
+    func addGame(at url: URL, engine: EngineType? = nil, executable: String? = nil) {
         do {
-            if let game = try manager.addGame(at: url) {
-                if !games.contains(where: { $0.path == game.path }) {
+            if let game = try manager.addGame(at: url, engine: engine, executable: executable) {
+                if let index = games.firstIndex(where: { $0.path == game.path }) {
+                    games[index] = game
+                } else {
                     games.append(game)
                 }
                 lastError = "✓ 已导入: \(game.name) (\(game.engine.displayName))"
             } else {
-                lastError = "未检测到支持的引擎。请确认选择的是游戏根目录。"
+                lastError = "未找到可执行文件。请确认选择的是游戏根目录。"
             }
         } catch {
             lastError = error.localizedDescription
@@ -162,7 +167,7 @@ final class GameLibraryViewModel: ObservableObject {
     func updateRating(for game: Game, rating: Int) {
         guard let index = games.firstIndex(where: { $0.id == game.id }) else { return }
         var updated = games[index]
-        updated.rating = rating
+        updated.rating = rating > 0 ? rating : Game.defaultRating(for: game.engine)
         updated.userRated = rating > 0
         games[index] = updated
         do {
