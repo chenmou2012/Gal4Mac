@@ -5,6 +5,7 @@ import Gal4MacCore
 struct ContentView: View {
     @EnvironmentObject var library: GameLibraryViewModel
     @State private var showingSettings = false
+    @State private var showingDownload = false
 
     private let columns = [
         GridItem(.adaptive(minimum: 200, maximum: 260), spacing: 16)
@@ -42,6 +43,14 @@ struct ContentView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
+                    showingDownload = true
+                } label: {
+                    Label("下载游戏", systemImage: "arrow.down.circle")
+                }
+                .help("使用 aria2 多线程下载并自动解压")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
                     showingSettings = true
                 } label: {
                     Label("设置", systemImage: "gear")
@@ -54,6 +63,10 @@ struct ContentView: View {
         }
         .sheet(isPresented: $library.showingImportGame) {
             ImportGameSheet()
+                .environmentObject(library)
+        }
+        .sheet(isPresented: $showingDownload) {
+            DownloadSheet()
                 .environmentObject(library)
         }
         .sheet(item: $library.showingSavesFor) { game in
