@@ -127,6 +127,20 @@ struct GameCardView: View {
                 Label("清除评分", systemImage: "star.slash")
             }
             Divider()
+            Menu {
+                Button(game.wineLocale == .automatic ? "✓ 自动（按引擎）" : "自动（按引擎）") {
+                    library.updateWineLocale(for: game, locale: .automatic)
+                }
+                Button(game.wineLocale == .simplifiedChinese ? "✓ 简体中文" : "简体中文") {
+                    library.updateWineLocale(for: game, locale: .simplifiedChinese)
+                }
+                Button(game.wineLocale == .japanese ? "✓ 日语" : "日语") {
+                    library.updateWineLocale(for: game, locale: .japanese)
+                }
+            } label: {
+                Label("游戏文本语言", systemImage: "character.bubble")
+            }
+            Divider()
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([game.path])
             } label: {

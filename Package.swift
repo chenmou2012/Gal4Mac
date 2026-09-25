@@ -14,7 +14,7 @@ let package = Package(
             targets: ["Gal4MacCLI"]
         ),
         .executable(
-            name: "Gal4Mac",
+            name: "Gal4MacApp",
             targets: ["Gal4MacUI"]
         ),
         .library(

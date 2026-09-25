@@ -28,10 +28,17 @@
 - Apple Silicon (M1/M2/M3/M4) 或 Intel
 - 8GB+ RAM（推荐 16GB 用于大型游戏）
 
-## 依赖
+## 引擎
 
-- [Mythic Engine](https://github.com/MythicApp/Engine) (GPL-3.0)
-- [Apple Game Porting Toolkit](https://developer.apple.com/gamesportingtoolkit/) (底层 LGPL Wine)
+图形版 `Gal4Mac.app` 可内置 Mythic Engine，运行时优先使用应用包中的
+`Contents/Resources/Engine`。Wine 容器和存档仍保存在用户目录，更新应用不会覆盖。
+开发时直接运行 SwiftPM 可执行文件、或使用 CLI 时，则沿用本机的 Mythic Engine。
+
+打包机需要先安装 Mythic Engine（默认位于
+`~/Library/Application Support/Mythic/Engine`）。如在其他目录，可设置
+`MYTHIC_ENGINE_SOURCE`。引擎包含 [Wine](https://www.winehq.org/) 及
+[Apple Game Porting Toolkit](https://developer.apple.com/gamesportingtoolkit/) 组件；
+打包脚本从本机复制引擎，仓库不存放引擎二进制。
 
 ## 安装
 
@@ -44,14 +51,20 @@ brew install --cask mythic
 # 2. 首次启动 Mythic 让其下载 Engine (~850MB)
 open /Applications/Mythic.app
 
-# 3. 编译 Gal4Mac
-cd /Users/chenmou2012/gal4mac
+# 3. 在仓库目录编译 CLI
 swift build -c release
 
-# 4. 运行
+# 4. 运行 CLI
 ./.build/release/gal4mac list
 ./.build/release/gal4mac launch Aokana
+
+# 5. 打包内置 Engine 的图形应用
+./Scripts/package_app.sh
+open ./dist/Gal4Mac.app
 ```
+
+打包结果位于 `dist/Gal4Mac.app`，使用本机临时签名，可直接在本机测试。
+对外发布需使用发布者的 Developer ID 签名并完成 Apple 公证。
 
 ## 使用示例
 

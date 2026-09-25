@@ -177,6 +177,16 @@ final class GameLibraryViewModel: ObservableObject {
         }
     }
 
+    func updateWineLocale(for game: Game, locale: WineLocale) {
+        guard let index = games.firstIndex(where: { $0.id == game.id }) else { return }
+        games[index].wineLocale = locale
+        do {
+            try manager.saveLibrary(games)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     /// 检查路径是否可访问
     func isAccessible(_ url: URL) -> Bool {
         manager.isPathAccessible(url)

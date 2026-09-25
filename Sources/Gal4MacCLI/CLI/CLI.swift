@@ -124,8 +124,8 @@ public struct CLI {
             }
         } else {
             print("❌ Mythic Engine 未安装")
-            print("   安装命令: brew install --cask mythic")
-            print("   然后启动 Mythic 让其下载 Engine")
+            print("   可使用内置 Engine 的 Gal4Mac.app")
+            print("   CLI 需要本机已安装 Mythic Engine")
             exit(1)
         }
 

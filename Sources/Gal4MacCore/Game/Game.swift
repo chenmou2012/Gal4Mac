@@ -1,5 +1,19 @@
 import Foundation
 
+public enum WineLocale: String, Codable, CaseIterable {
+    case automatic
+    case simplifiedChinese
+    case japanese
+
+    public var unixLocale: String? {
+        switch self {
+        case .automatic: return nil
+        case .simplifiedChinese: return "zh_CN.UTF-8"
+        case .japanese: return "ja_JP.UTF-8"
+        }
+    }
+}
+
 /// Galgame 游戏信息
 public struct Game: Codable, Identifiable, Equatable {
     public let id: UUID
@@ -14,6 +28,7 @@ public struct Game: Codable, Identifiable, Equatable {
     public var rating: Int  // 1-5 星
     public var userRated: Bool  // 用户是否自定义评分
     public var playtime: TimeInterval  // 累计游戏时长（秒）
+    public var wineLocale: WineLocale
 
     // 自定义解码，提供向后兼容（旧 JSON 没有新字段时使用默认值）
     public init(from decoder: Decoder) throws {
@@ -29,6 +44,7 @@ public struct Game: Codable, Identifiable, Equatable {
         self.notes = (try? c.decode(String.self, forKey: .notes)) ?? ""
         self.userRated = (try? c.decode(Bool.self, forKey: .userRated)) ?? false
         self.playtime = (try? c.decode(TimeInterval.self, forKey: .playtime)) ?? 0
+        self.wineLocale = (try? c.decode(WineLocale.self, forKey: .wineLocale)) ?? .automatic
         // rating 默认为引擎兼容性分数
         if let r = try? c.decode(Int.self, forKey: .rating) {
             self.rating = r
@@ -49,7 +65,8 @@ public struct Game: Codable, Identifiable, Equatable {
         notes: String = "",
         rating: Int? = nil,
         userRated: Bool = false,
-        playtime: TimeInterval = 0
+        playtime: TimeInterval = 0,
+        wineLocale: WineLocale = .automatic
     ) {
         self.id = id
         self.name = name
@@ -62,6 +79,7 @@ public struct Game: Codable, Identifiable, Equatable {
         self.notes = notes
         self.userRated = userRated
         self.playtime = playtime
+        self.wineLocale = wineLocale
         // 根据兼容性给默认评分
         self.rating = rating ?? Game.defaultRating(for: engine)
     }

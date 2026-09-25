@@ -8,6 +8,14 @@ public final class EngineManager {
 
     /// Mythic Engine 的文件系统根目录
     public static let engineDirectory: URL = {
+        // A packaged app carries its own Engine. The command line tool and
+        // development builds continue to use the existing Mythic installation.
+        if let resources = Bundle.main.resourceURL {
+            let bundled = resources.appendingPathComponent("Engine", isDirectory: true)
+            if isEnginePresent(at: bundled) {
+                return bundled
+            }
+        }
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -16,6 +24,12 @@ public final class EngineManager {
             .appendingPathComponent("Mythic")
             .appendingPathComponent("Engine")
     }()
+
+    private static func isEnginePresent(at directory: URL) -> Bool {
+        let fm = FileManager.default
+        return fm.fileExists(atPath: directory.appendingPathComponent("wine/bin/wine64").path)
+            && fm.fileExists(atPath: directory.appendingPathComponent("Properties.plist").path)
+    }
 
     /// wine64 二进制路径
     public static var wineExecutable: URL {
@@ -68,7 +82,7 @@ public final class EngineManager {
         public var errorDescription: String? {
             switch self {
             case .engineNotInstalled:
-                return "Mythic Engine 未安装。请先运行 `brew install --cask mythic` 并启动 Mythic 让其下载 Engine。"
+                return "Mythic Engine 不可用。请使用内置 Engine 的 Gal4Mac.app，或先安装 Mythic Engine。"
             case .wineBinaryMissing:
                 return "Wine 二进制不存在：\(wineExecutable.path)"
             case .propertiesCorrupted:
@@ -104,9 +118,7 @@ public final class EngineManager {
 
     /// 检查 Engine 是否已安装
     public static func isInstalled() -> Bool {
-        let fm = FileManager.default
-        return fm.fileExists(atPath: wineExecutable.path) &&
-               fm.fileExists(atPath: propertiesFile.path)
+        isEnginePresent(at: engineDirectory)
     }
 
     /// 获取当前 Engine 版本
@@ -193,7 +205,8 @@ public final class EngineManager {
     /// 启动 Engine 的环境变量
     public static func launchEnvironment(
         prefix: URL,
-        audio: AudioConfig = AudioConfig()
+        audio: AudioConfig = AudioConfig(),
+        engineConfig: EngineOptimizer.WineConfig? = nil
     ) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         env["WINEPREFIX"] = prefix.path
@@ -212,16 +225,27 @@ public final class EngineManager {
         if let sdl = audio.sdlDriver {
             env["SDL_AUDIODRIVER"] = sdl
         }
-        // 注意：不要设置 WINEDLLOVERRIDES="dsound=n,b" 或 "dsound=b"
-        // 这会破坏DirectSound，导致无声音
-        // 改用注册表方式：HKCU\Software\Wine\DirectSound\HardwareAcceleration=Emulation
+
+        // 应用引擎特定的环境变量
+        if let config = engineConfig {
+            for (key, value) in config.environmentVariables {
+                env[key] = value
+            }
+            // DLL overrides
+            if !config.dllOverrides.isEmpty {
+                env["WINEDLLOVERRIDES"] = config.dllOverrides.joined(separator: ";")
+            }
+        }
 
         return env
     }
 
     /// 自动应用 DirectSound 优化到 Wine prefix
     /// 这是解决杂音的真正有效方法（基于Mythic Engine + Wine 7.7测试）
-    public static func applyAudioOptimizations(prefix: URL) throws {
+    public static func applyAudioOptimizations(
+        prefix: URL,
+        engineConfig: EngineOptimizer.WineConfig? = nil
+    ) throws {
         guard FileManager.default.fileExists(atPath: prefix.path) else {
             return  // prefix还不存在，跳过
         }
@@ -232,11 +256,7 @@ public final class EngineManager {
             ("HKCU\\Software\\Wine\\DirectSound", "DefaultBitsPerSample", "16")
         ]
 
-        let env = ProcessInfo.processInfo.environment
-        var processEnv = env
-        processEnv["WINEPREFIX"] = prefix.path
-        processEnv["WINESERVER"] = wineServer.path
-        processEnv["DYLD_FALLBACK_LIBRARY_PATH"] = wineLibDirectory.path
+        let processEnv = launchEnvironment(prefix: prefix, engineConfig: engineConfig)
 
         for (key, name, value) in regCommands {
             let p = Process()
@@ -256,14 +276,15 @@ public final class EngineManager {
         arguments: [String] = [],
         workingDirectory: URL? = nil,
         captureOutput: Bool = false,
-        audio: AudioConfig = AudioConfig()
+        audio: AudioConfig = AudioConfig(),
+        engineConfig: EngineOptimizer.WineConfig? = nil
     ) throws -> Int32 {
         try validate()
 
         let process = Process()
         process.executableURL = wineExecutable
         process.arguments = [executable] + arguments
-        process.environment = launchEnvironment(prefix: prefix, audio: audio)
+        process.environment = launchEnvironment(prefix: prefix, audio: audio, engineConfig: engineConfig)
 
         if let workDir = workingDirectory {
             process.currentDirectoryURL = workDir
@@ -280,21 +301,21 @@ public final class EngineManager {
         return process.terminationStatus
     }
 
-    /// 异步启动 wine，监控进程并返回退出事件
-    /// - Returns: AsyncStream<Date?> 发射进程启动和退出事件
+    /// 异步启动 wine
     public static func runWineAsync(
         prefix: URL,
         executable: String,
         arguments: [String] = [],
         workingDirectory: URL? = nil,
-        audio: AudioConfig = AudioConfig()
+        audio: AudioConfig = AudioConfig(),
+        engineConfig: EngineOptimizer.WineConfig? = nil
     ) throws -> (Process, Date) {
         try validate()
 
         let process = Process()
         process.executableURL = wineExecutable
         process.arguments = [executable] + arguments
-        process.environment = launchEnvironment(prefix: prefix, audio: audio)
+        process.environment = launchEnvironment(prefix: prefix, audio: audio, engineConfig: engineConfig)
 
         if let workDir = workingDirectory {
             process.currentDirectoryURL = workDir
