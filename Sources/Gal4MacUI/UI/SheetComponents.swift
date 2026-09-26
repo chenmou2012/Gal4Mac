@@ -1,6 +1,10 @@
 import SwiftUI
 import AppKit
 
+enum GalUITheme {
+    static let accent = Color(red: 0.40, green: 0.30, blue: 0.98)
+}
+
 /// Shared sheet language: clear titles and restrained acrylic surfaces.
 struct GalSheetHeader: View {
     let title: String
@@ -11,9 +15,9 @@ struct GalSheetHeader: View {
         HStack(spacing: 14) {
             Image(systemName: symbol)
                 .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(GalUITheme.accent)
                 .frame(width: 44, height: 44)
-                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .background(GalUITheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)

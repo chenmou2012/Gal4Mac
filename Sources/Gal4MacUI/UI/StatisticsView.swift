@@ -105,7 +105,7 @@ struct StatisticsView: View {
                                     .foregroundStyle(.primary)
                             }
                             ProgressView(value: game.playtime, total: max(mostPlayed[0].playtime, 1))
-                                .tint(Color.accentColor)
+                                .tint(GalUITheme.accent)
                                 .padding(.leading, 29)
                         }
                         .contentShape(Rectangle())
@@ -135,9 +135,9 @@ struct StatisticsView: View {
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "gamecontroller")
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(GalUITheme.accent)
                                 .frame(width: 30, height: 30)
-                                .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 9))
+                                .background(GalUITheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 9))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(game.name)
                                     .font(.callout.weight(.medium))
@@ -180,7 +180,7 @@ struct StatisticsView: View {
                         .foregroundStyle(.secondary)
                 }
                 ProgressView(value: Double(item.count), total: Double(max(games.count, 1)))
-                    .tint(Color.accentColor.opacity(0.8))
+                    .tint(GalUITheme.accent.opacity(0.8))
             }
         }
         .padding(16)
@@ -198,9 +198,9 @@ private struct OverviewTile: View {
         VStack(alignment: .leading, spacing: 12) {
             Image(systemName: symbol)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(GalUITheme.accent)
                 .frame(width: 34, height: 34)
-                .background(Color.accentColor.opacity(0.11), in: RoundedRectangle(cornerRadius: 10))
+                .background(GalUITheme.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.caption)
