@@ -82,15 +82,12 @@ public final class GameLauncher {
         }
 
         // 2. 准备 Wine prefix
-        let prefix = engine.winePrefix(for: game.name)
+        let prefix = try engine.winePrefix(for: game)
         let engineConfig = Self.launchConfig(for: game)
 
         if engineConfig.dxBackend == .d3d11 {
             try engine.installDXVK32Bit(prefix: prefix)
         }
-
-        // 先用游戏的语言环境启动 Wine，再配置其余注册表项。
-        try engine.prepareMenuFont(prefix: prefix, engineConfig: engineConfig)
 
         // 应用引擎专属 Wine 注册表项（例如 Siglus 的 DirectSound 参数）。
         try EngineConfigurator().applyOptimizations(config: engineConfig, prefix: prefix)
@@ -102,6 +99,7 @@ public final class GameLauncher {
             // 忽略错误
         }
         try engine.installNativeDirectSound(prefix: prefix)
+        try engine.prepareSystemFonts(prefix: prefix, engineConfig: engineConfig)
 
         // 4. 检查可执行文件
         let exePath = game.executablePath
@@ -164,7 +162,7 @@ public final class GameLauncher {
 
         // 2. 准备 Wine prefix
         onProgress?(.preparingWine)
-        let prefix = engine.winePrefix(for: game.name)
+        let prefix = try engine.winePrefix(for: game)
         let engineConfig = Self.launchConfig(for: game)
 
         if engineConfig.dxBackend == .d3d11 {
@@ -172,8 +170,6 @@ public final class GameLauncher {
         }
 
         onProgress?(.configuringWine)
-        try engine.prepareMenuFont(prefix: prefix, engineConfig: engineConfig)
-
         // 同步版本使用相同的引擎专属 Wine 配置。
         try EngineConfigurator().applyOptimizations(config: engineConfig, prefix: prefix)
 
@@ -182,6 +178,7 @@ public final class GameLauncher {
             try engine.applyAudioOptimizations(prefix: prefix, engineConfig: engineConfig)
         } catch {}
         try engine.installNativeDirectSound(prefix: prefix)
+        try engine.prepareSystemFonts(prefix: prefix, engineConfig: engineConfig)
 
         // 4. 检查可执行文件
         onProgress?(.checkingFiles)

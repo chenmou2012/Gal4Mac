@@ -178,6 +178,27 @@ public final class EngineManager {
         containersDirectory.appendingPathComponent(gameName)
     }
 
+    /// 每个游戏使用自己的容器。首次启动时迁移旧版按名称命名的容器。
+    public static func winePrefix(for game: Game) throws -> URL {
+        try winePrefix(for: game, in: containersDirectory)
+    }
+
+    static func winePrefix(for game: Game, in directory: URL) throws -> URL {
+        let prefix = directory.appendingPathComponent(game.id.uuidString.lowercased(), isDirectory: true)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: prefix.path) { return prefix }
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        // 历史版本按游戏名称存放容器。名称含路径分隔符时不读取该旧路径。
+        guard game.name == URL(fileURLWithPath: game.name).lastPathComponent,
+              !game.name.contains("/"), !game.name.contains("\\") else { return prefix }
+        let legacy = directory.appendingPathComponent(game.name, isDirectory: true)
+        guard fm.fileExists(atPath: legacy.path) else { return prefix }
+
+        try fm.moveItem(at: legacy, to: prefix)
+        return prefix
+    }
+
     /// 音频配置选项
     public struct AudioConfig {
         /// 音频缓冲区延迟（毫秒），用于消除杂音。常用值：60, 120, 200

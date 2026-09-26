@@ -30,10 +30,14 @@ public final class LibraryManager {
 
     public enum LibraryError: LocalizedError {
         case invalidExecutable
+        case pathUnavailable(URL)
+        case noLibraryScanned
 
         public var errorDescription: String? {
             switch self {
             case .invalidExecutable: return "请选择游戏目录中的 .exe 可执行文件"
+            case .pathUnavailable(let path): return "游戏库路径不可访问：\(path.path)"
+            case .noLibraryScanned: return "没有可访问的游戏库路径，请检查外接磁盘或目录权限"
             }
         }
     }
@@ -60,14 +64,30 @@ public final class LibraryManager {
     }
 
     private let detector = EngineDetector()
+    private let storageDirectory: URL?
 
-    public init() {}
+    public init(storageDirectory: URL? = nil) {
+        self.storageDirectory = storageDirectory
+    }
+
+    private var libraryFileURL: URL {
+        storageDirectory?.appendingPathComponent("library.json") ?? Self.libraryFile
+    }
+
+    private var configFileURL: URL {
+        storageDirectory?.appendingPathComponent("config.json") ?? Self.configFile
+    }
+
+    /// 按路径组件判断归属，避免 /Games/Gal 匹配 /Games/GalExtra。
+    public static func isWithin(_ path: URL, root: URL) -> Bool {
+        path.standardizedFileURL.pathComponents.starts(with: root.standardizedFileURL.pathComponents)
+    }
 
     // MARK: - 配置管理
 
     /// 加载库配置
     public func loadConfig() -> LibraryConfig {
-        guard let data = try? Data(contentsOf: Self.configFile),
+        guard let data = try? Data(contentsOf: configFileURL),
               let config = try? JSONDecoder().decode(LibraryConfig.self, from: data) else {
             // 首次启动：返回默认配置（包含一个默认路径）
             return LibraryConfig(libraryPaths: [LibraryConfig.defaultPath])
@@ -78,7 +98,8 @@ public final class LibraryManager {
     /// 保存库配置
     public func saveConfig(_ config: LibraryConfig) throws {
         let data = try JSONEncoder().encode(config)
-        try data.write(to: Self.configFile, options: .atomic)
+        try FileManager.default.createDirectory(at: configFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: configFileURL, options: .atomic)
     }
 
     /// 添加库路径
@@ -105,7 +126,7 @@ public final class LibraryManager {
 
     /// 加载已保存的游戏库
     public func loadLibrary() -> [Game] {
-        guard let data = try? Data(contentsOf: Self.libraryFile),
+        guard let data = try? Data(contentsOf: libraryFileURL),
               let games = try? JSONDecoder().decode([Game].self, from: data) else {
             return []
         }
@@ -115,7 +136,8 @@ public final class LibraryManager {
     /// 保存游戏库
     public func saveLibrary(_ games: [Game]) throws {
         let data = try JSONEncoder().encode(games)
-        try data.write(to: Self.libraryFile, options: .atomic)
+        try FileManager.default.createDirectory(at: libraryFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: libraryFileURL, options: .atomic)
     }
 
     /// 扫描所有配置的库路径
@@ -123,19 +145,30 @@ public final class LibraryManager {
     public func scanAll() throws -> [Game] {
         let config = loadConfig()
         var allFound: [Game] = []
+        var scannedPaths: [URL] = []
+        var failedPaths: [URL] = []
         for path in config.libraryPaths {
             do {
                 let found = try scan(directory: path, mergeToGlobal: false)
                 allFound.append(contentsOf: found)
+                scannedPaths.append(path)
             } catch {
+                failedPaths.append(path)
                 print("⚠️ 扫描失败: \(path.path) - \(error.localizedDescription)")
             }
+        }
+        if scannedPaths.isEmpty && !config.libraryPaths.isEmpty {
+            throw LibraryError.noLibraryScanned
         }
         // 合并到全局库
         var library = loadLibrary()
         mergeScannedGames(allFound, into: &library)
-        // 移除已不存在的游戏（路径已删除）
-        library.removeAll { !FileManager.default.fileExists(atPath: $0.path.path) }
+        // 仅清理成功扫描的库，保留暂时离线或不可读路径中的游戏记录。
+        library.removeAll { game in
+            scannedPaths.contains { Self.isWithin(game.path, root: $0) } &&
+                !failedPaths.contains { Self.isWithin(game.path, root: $0) } &&
+                !FileManager.default.fileExists(atPath: game.path.path)
+        }
 
         try saveLibrary(library)
 
@@ -154,16 +187,14 @@ public final class LibraryManager {
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: directory.path, isDirectory: &isDir),
               isDir.boolValue else {
-            return []
+            throw LibraryError.pathUnavailable(directory)
         }
 
-        guard let contents = try? fm.contentsOfDirectory(
+        let contents = try fm.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
+        )
 
         var foundGames: [Game] = []
 

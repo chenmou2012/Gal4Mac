@@ -24,6 +24,7 @@ public final class ArchiveExtractor {
         case unzipFailed(String)
         case noGameFound
         case readError(String)
+        case missingVolume(String)
 
         public var errorDescription: String? {
             switch self {
@@ -31,6 +32,7 @@ public final class ArchiveExtractor {
             case .unzipFailed(let msg): return "解压失败: \(msg)"
             case .noGameFound: return "压缩包内未找到游戏"
             case .readError(let msg): return "读取失败: \(msg)"
+            case .missingVolume(let name): return "分卷压缩包不完整，缺少文件: \(name)"
             }
         }
     }
@@ -39,7 +41,20 @@ public final class ArchiveExtractor {
 
     /// 检测压缩包格式
     public func detectFormat(at url: URL) -> Format {
-        Format(fileExtension: url.pathExtension)
+        let name = url.lastPathComponent.lowercased()
+        if name.range(of: #"\.7z\.\d{3,}$"#, options: .regularExpression) != nil {
+            return .sevenZip
+        }
+        if name.range(of: #"\.zip\.\d{3,}$"#, options: .regularExpression) != nil {
+            return .zip
+        }
+        if name.range(of: #"\.part\d+\.rar$"#, options: .regularExpression) != nil {
+            return .rar
+        }
+        if name.range(of: #"\.r\d{2}$"#, options: .regularExpression) != nil {
+            return .rar
+        }
+        return Format(fileExtension: url.pathExtension)
     }
 
     /// 解压到指定目录
@@ -53,6 +68,9 @@ public final class ArchiveExtractor {
             throw ExtractError.unsupportedFormat(archiveURL.pathExtension)
         }
 
+        let firstVolume = try resolveFirstVolume(for: archiveURL)
+        try validateVolumes(for: firstVolume)
+
         // 确保目标目录存在
         try FileManager.default.createDirectory(
             at: destination,
@@ -62,11 +80,11 @@ public final class ArchiveExtractor {
         // 选择解压工具
         switch format {
         case .zip:
-            try extractZip(archive: archiveURL, to: destination)
+            try extractZip(archive: firstVolume, to: destination)
         case .rar:
-            try extractRar(archive: archiveURL, to: destination)
+            try extractRar(archive: firstVolume, to: destination)
         case .sevenZip:
-            try extract7z(archive: archiveURL, to: destination)
+            try extract7z(archive: firstVolume, to: destination)
         case .unknown:
             throw ExtractError.unsupportedFormat(archiveURL.pathExtension)
         }
@@ -79,9 +97,124 @@ public final class ArchiveExtractor {
         return gameDir
     }
 
+    /// 将用户选中的任意分卷定位到第一卷。归档工具需要从首卷启动。
+    private func resolveFirstVolume(for url: URL) throws -> URL {
+        let name = url.lastPathComponent
+        if let match = name.range(of: #"\.part\d+\.rar$"#, options: [.regularExpression, .caseInsensitive]) {
+            let partSuffix = String(name[match])
+            let digits = String(partSuffix.dropFirst(".part".count).dropLast(".rar".count))
+            let prefix = String(name[..<match.lowerBound])
+            let firstSuffix = ".part\(String(repeating: "0", count: max(0, digits.count - 1)))1.rar"
+            let first = url.deletingLastPathComponent().appendingPathComponent(prefix + firstSuffix)
+            guard FileManager.default.fileExists(atPath: first.path) else {
+                throw ExtractError.missingVolume(first.lastPathComponent)
+            }
+            return first
+        }
+
+        if name.range(of: #"\.r\d{2}$"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            let base = String(name.dropLast(3))
+            let first = url.deletingLastPathComponent().appendingPathComponent("\(base).rar")
+            guard FileManager.default.fileExists(atPath: first.path) else {
+                throw ExtractError.missingVolume(first.lastPathComponent)
+            }
+            return first
+        }
+
+        if let match = name.range(of: #"\.(\d{3,})$"#, options: .regularExpression),
+           Int(name[match].dropFirst()) != nil {
+            let suffix = String(name[match])
+            guard let baseRange = name.range(of: #"\.\d{3,}$"#, options: .regularExpression) else { return url }
+            let baseName = String(name[..<baseRange.lowerBound])
+            let first = url.deletingLastPathComponent().appendingPathComponent("\(baseName).\(String(repeating: "0", count: max(0, suffix.count - 1)))1")
+            guard FileManager.default.fileExists(atPath: first.path) else {
+                throw ExtractError.missingVolume(first.lastPathComponent)
+            }
+            return first
+        }
+
+        return url
+    }
+
+    /// 检查常见的连续分卷命名，避免将不完整压缩包交给解压工具后只得到模糊错误。
+    private func validateVolumes(for first: URL) throws {
+        let name = first.lastPathComponent
+        let directory = first.deletingLastPathComponent()
+        let fm = FileManager.default
+
+        if let match = name.range(of: #"\.part0*1\.rar$"#, options: [.regularExpression, .caseInsensitive]) {
+            let prefix = String(name[..<match.lowerBound])
+            let padded = String(name[match]).contains("part0")
+            var index = 1
+            while true {
+                let partNumber = padded ? String(format: "%02d", index) : String(index)
+                let volume = directory.appendingPathComponent("\(prefix).part\(partNumber).rar")
+                if !fm.fileExists(atPath: volume.path) {
+                    if index == 1 { throw ExtractError.missingVolume(volume.lastPathComponent) }
+                    let siblings = (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
+                    let laterPartExists = siblings.contains { sibling in
+                        let lower = sibling.lowercased()
+                        guard lower.hasPrefix("\(prefix.lowercased()).part"),
+                              lower.hasSuffix(".rar"),
+                              let range = lower.range(of: #"\.part(\d+)\.rar$"#, options: .regularExpression),
+                              let laterNumber = Int(lower[range].dropFirst(".part".count).dropLast(".rar".count)) else {
+                            return false
+                        }
+                        return laterNumber > index
+                    }
+                    if laterPartExists { throw ExtractError.missingVolume(volume.lastPathComponent) }
+                    break
+                }
+                index += 1
+            }
+        } else if let match = name.range(of: #"\.(\d{3,})$"#, options: .regularExpression) {
+            let suffix = String(name[match].dropFirst())
+            let base = String(name[..<match.lowerBound])
+            let width = suffix.count
+            var index = 1
+            while true {
+                let numbered = String(format: "%0*d", width, index)
+                let volume = directory.appendingPathComponent("\(base).\(numbered)")
+                if !fm.fileExists(atPath: volume.path) {
+                    if index == 1 { throw ExtractError.missingVolume(volume.lastPathComponent) }
+                    // A gap followed by later volumes indicates an incomplete set.
+                    if let siblings = try? fm.contentsOfDirectory(atPath: directory.path),
+                       siblings.contains(where: { $0.hasPrefix("\(base).") && $0 > volume.lastPathComponent }) {
+                        throw ExtractError.missingVolume(volume.lastPathComponent)
+                    }
+                    break
+                }
+                index += 1
+            }
+        } else if name.lowercased().hasSuffix(".rar") {
+            let base = String(name.dropLast(4))
+            var index = 0
+            while true {
+                let volume = directory.appendingPathComponent(String(format: "%@.r%02d", base, index))
+                if !fm.fileExists(atPath: volume.path) {
+                    if index == 0 { break }
+                    let siblings = (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
+                    if siblings.contains(where: { $0.hasPrefix("\(base).r") && $0 > volume.lastPathComponent }) {
+                        throw ExtractError.missingVolume(volume.lastPathComponent)
+                    }
+                    break
+                }
+                index += 1
+            }
+        }
+    }
+
     // MARK: - 解压实现
 
     private func extractZip(archive: URL, to destination: URL) throws {
+        // 7-Zip handles split ZIP volumes such as game.zip.001 when installed.
+        if archive.lastPathComponent.lowercased().range(of: #"\.zip\.\d{3,}$"#, options: .regularExpression) != nil {
+            if let tool = ["/opt/homebrew/bin/7z", "/usr/local/bin/7z"].first(where: FileManager.default.isExecutableFile(atPath:)) {
+                try runUnzipToolWithoutCheck(tool: tool, args: ["x", "-y", "-o\(destination.path)", archive.path])
+                return
+            }
+            throw ExtractError.unsupportedFormat("分卷 ZIP 需要安装 7z: brew install p7zip")
+        }
         // 优先用系统 ditto（更快）
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")

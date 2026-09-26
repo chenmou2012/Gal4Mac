@@ -46,7 +46,7 @@ struct GameCardView: View {
                 }
 
                 HStack {
-                    Text(game.sizeDescription)
+                    Text(library.gameSizeDescription(for: game))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                     if game.playtime > 0 {

@@ -7,10 +7,28 @@ struct SteamGameMetadata {
     let developers: [String]
     let publishers: [String]
     let releaseDate: String?
+    let artworkURL: URL?
+    let matchScore: Double
 
+    var isVerifiedMatch: Bool { matchScore == 1 }
 }
 
 enum SteamMetadataService {
+    private static let witchEditionTitles: Set<String> = [
+        "sanobawitch", "サノバウィッチ", "sabbatofthewitch", "魔女的夜宴"
+    ]
+
+    static func cloudTitlesMatch(_ cloudTitle: String, localNames: [String], matchedName: String) -> Bool {
+        let cloud = normalizedTitle(cloudTitle)
+        let names = (localNames + [matchedName]).map(normalizedTitle)
+        if names.contains(cloud) { return true }
+        return witchEditionTitles.contains(cloud) && names.contains(where: witchEditionTitles.contains)
+    }
+
+    private static func normalizedTitle(_ value: String) -> String {
+        value.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
     private static let knownAliases = [
         "sanoba witch": "Sabbat of the Witch",
         "サノバウィッチ": "Sabbat of the Witch"
@@ -37,10 +55,11 @@ enum SteamMetadataService {
             let developers: [String]?
             let publishers: [String]?
             let release_date: ReleaseDate?
+            let header_image: String?
 
             enum CodingKeys: String, CodingKey {
                 case steamAppID = "steam_appid"
-                case name, type, short_description, developers, publishers, release_date
+                case name, type, short_description, developers, publishers, release_date, header_image
             }
         }
         struct ReleaseDate: Decodable {
@@ -75,7 +94,7 @@ enum SteamMetadataService {
         }
         names.append(contentsOf: aliasNames)
 
-        var resolved: (item: SearchResponse.Item, data: DetailsResponse.AppDetails, description: String?)?
+        var resolved: (item: SearchResponse.Item, data: DetailsResponse.AppDetails, description: String?, score: Double)?
         for name in names {
             // Prefer the Chinese Steam catalog, then fall back to the English catalog.
             for (language, country) in [("schinese", "CN"), ("english", "US")] {
@@ -101,7 +120,7 @@ enum SteamMetadataService {
                     }
                     guard let data = chineseDetails ?? englishDetails, data.type == "game" else { continue }
                     let description = chineseDescription ?? englishDetails?.short_description.map(plainText)
-                    resolved = (candidate.item, data, description)
+                    resolved = (candidate.item, data, description, candidate.score)
                     break
                 }
                 if resolved != nil { break }
@@ -115,7 +134,9 @@ enum SteamMetadataService {
             description: resolved.description,
             developers: resolved.data.developers ?? [],
             publishers: resolved.data.publishers ?? [],
-            releaseDate: resolved.data.release_date?.date
+            releaseDate: resolved.data.release_date?.date,
+            artworkURL: resolved.data.header_image.flatMap(URL.init(string:)),
+            matchScore: resolved.score
         )
     }
 
@@ -150,11 +171,8 @@ enum SteamMetadataService {
     }
 
     private static func similarity(_ lhs: String, _ rhs: String) -> Double {
-        func normalized(_ value: String) -> String {
-            value.lowercased().filter { $0.isLetter || $0.isNumber }
-        }
-        let a = normalized(lhs)
-        let b = normalized(rhs)
+        let a = normalizedTitle(lhs)
+        let b = normalizedTitle(rhs)
         guard !a.isEmpty, !b.isEmpty else { return 0 }
         if a == b { return 1 }
         if b.hasPrefix(a) || a.hasPrefix(b) { return 0.9 }

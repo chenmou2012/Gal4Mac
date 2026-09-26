@@ -62,7 +62,7 @@ struct DownloadSheet: View {
                     }
                 }
                 .padding(12)
-                .background(Color(nsColor: .controlBackgroundColor))
+                .background(MythicTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
@@ -107,6 +107,8 @@ struct DownloadSheet: View {
         }
         .padding(20)
         .frame(width: 580, height: 380)
+        .background(MythicTheme.background)
+        .tint(MythicTheme.accent)
     }
 
     private func startDownload() {

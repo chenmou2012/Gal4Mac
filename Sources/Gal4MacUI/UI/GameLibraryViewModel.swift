@@ -27,12 +27,15 @@ final class GameLibraryViewModel: ObservableObject {
     @Published var launchStatus: GameLaunchStatus?
     @Published var steamMetadata: [UUID: SteamGameMetadata] = [:]
     @Published var loadingSteamMetadata: Set<UUID> = []
+    @Published private var gameSizes: [UUID: String] = [:]
 
     private let manager = LibraryManager()
     private var requestedSteamMetadata: Set<UUID> = []
     private var activeLaunchToken: UUID?
     private var activeGameProcess: Process?
     private var activeWinePrefix: URL?
+    private var sizeScanTask: Task<Void, Never>?
+    private var sizeScanToken = UUID()
 
     init() {
         loadAll()
@@ -47,6 +50,34 @@ final class GameLibraryViewModel: ObservableObject {
         config = manager.loadConfig()
         requestedSteamMetadata = []
         steamMetadata = [:]
+        refreshGameSizes()
+    }
+
+    func gameSizeDescription(for game: Game) -> String {
+        gameSizes[game.id] ?? "计算中…"
+    }
+
+    /// 在后台逐个统计大小，并缓存到下次扫描。
+    private func refreshGameSizes(recalculate: Bool = false) {
+        sizeScanTask?.cancel()
+        sizeScanToken = UUID()
+        let token = sizeScanToken
+        if recalculate { gameSizes.removeAll() }
+        let ids = Set(games.map(\.id))
+        gameSizes = gameSizes.filter { ids.contains($0.key) }
+        let pending = games.filter { gameSizes[$0.id] == nil }
+        sizeScanTask = Task.detached(priority: .utility) { [weak self] in
+            for game in pending {
+                if Task.isCancelled { return }
+                let description = FileManager.default.fileExists(atPath: game.path.path)
+                    ? game.sizeDescription : "路径不可用"
+                await MainActor.run { [weak self] in
+                    guard let self, self.sizeScanToken == token,
+                          self.games.contains(where: { $0.id == game.id }) else { return }
+                    self.gameSizes[game.id] = description
+                }
+            }
+        }
     }
 
     func loadSteamMetadata(for game: Game) {
@@ -85,6 +116,7 @@ final class GameLibraryViewModel: ObservableObject {
                     self.games = found
                     self.config = config
                     self.isScanning = false
+                    self.refreshGameSizes(recalculate: true)
                 }
             } catch {
                 await MainActor.run {
@@ -108,6 +140,7 @@ final class GameLibraryViewModel: ObservableObject {
                 await MainActor.run {
                     self.games = library
                     self.isScanning = false
+                    self.refreshGameSizes(recalculate: true)
                 }
             } catch {
                 await MainActor.run {
@@ -133,8 +166,12 @@ final class GameLibraryViewModel: ObservableObject {
         do {
             config = try manager.removeLibraryPath(url)
             // 移除该路径下的游戏
-            games.removeAll { $0.path.path.hasPrefix(url.path) }
+            games.removeAll { game in
+                LibraryManager.isWithin(game.path, root: url) &&
+                    !config.libraryPaths.contains { LibraryManager.isWithin(game.path, root: $0) }
+            }
             try manager.saveLibrary(games)
+            refreshGameSizes()
         } catch {
             lastError = error.localizedDescription
         }
@@ -149,6 +186,8 @@ final class GameLibraryViewModel: ObservableObject {
                 } else {
                     games.append(game)
                 }
+                gameSizes.removeValue(forKey: game.id)
+                refreshGameSizes()
                 lastError = "✓ 已导入: \(game.name) (\(game.engine.displayName))"
             } else {
                 lastError = "未找到可执行文件。请确认选择的是游戏根目录。"
@@ -166,6 +205,7 @@ final class GameLibraryViewModel: ObservableObject {
 
     /// 启动游戏
     func launch(_ game: Game) {
+        guard launchingGameId == nil else { return }
         let launchToken = UUID()
         activeLaunchToken = launchToken
         launchingGameId = game.id
@@ -306,6 +346,7 @@ final class GameLibraryViewModel: ObservableObject {
     /// 移除游戏
     func removeGame(_ game: Game) {
         games.removeAll { $0.id == game.id }
+        refreshGameSizes()
         do {
             try manager.removeGame(id: game.id)
         } catch {

@@ -54,6 +54,8 @@ struct SaveImportReviewSheet: View {
         }
         .padding(20)
         .frame(width: 610, height: 310)
+        .background(MythicTheme.background)
+        .tint(MythicTheme.accent)
     }
 
     private func chooseDirectory() {

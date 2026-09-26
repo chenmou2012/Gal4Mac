@@ -7,14 +7,23 @@ struct SaveManagerSheet: View {
     let game: Game
     @EnvironmentObject var library: GameLibraryViewModel
     @Environment(\.dismiss) var dismiss
+    @ObservedObject private var steamSession = SteamWebSession.shared
 
     @State private var saveLocations: [SaveManager.SaveLocation] = []
     @State private var isLoading = false
+    @State private var isCheckingSteam = false
     @State private var message: String?
     @State private var showingSteamCloud = false
+    @State private var showingSteamSettings = false
+    @State private var selectedCloudAppID: Int?
     @State private var pendingImport: SaveArchiveManager.ImportPreview?
+    @State private var isVisible = false
 
     private let saveManager = SaveManager()
+    private var matchedSteamGame: SteamGameMetadata? {
+        guard let metadata = library.steamMetadata[game.id], metadata.isVerifiedMatch else { return nil }
+        return metadata
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -29,6 +38,14 @@ struct SaveManagerSheet: View {
             Text("自动检测存档位置。导入/导出为 zip 文件。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if matchedSteamGame == nil {
+                Text(library.loadingSteamMetadata.contains(game.id)
+                     ? "正在匹配 Steam 游戏，完成后可自动下载云存档。"
+                     : "未可靠匹配到 Steam 游戏，云存档自动下载不可用。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             if isLoading {
                 ProgressView("扫描存档...")
@@ -57,7 +74,7 @@ struct SaveManagerSheet: View {
             if let message = message {
                 Text(message)
                     .font(.callout)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(MythicTheme.accentLight)
             }
 
             Divider()
@@ -66,9 +83,10 @@ struct SaveManagerSheet: View {
                 Button("导入存档…") {
                     importSaves()
                 }
-                Button("从 Steam 云端下载…") {
-                    showingSteamCloud = true
+                Button(isCheckingSteam ? "正在检查 Steam 游戏库…" : "自动下载 Steam 云存档…") {
+                    checkSteamAndDownload()
                 }
+                .disabled(matchedSteamGame == nil || isCheckingSteam || steamSession.authentication == .checking)
                 Spacer()
                 Button("关闭") { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -76,11 +94,26 @@ struct SaveManagerSheet: View {
         }
         .padding(20)
         .frame(width: 540, height: 360)
+        .background(MythicTheme.background)
+        .tint(MythicTheme.accent)
         .onAppear {
+            isVisible = true
             loadSaves()
+            library.loadSteamMetadata(for: game)
         }
-        .sheet(isPresented: $showingSteamCloud, onDismiss: loadSaves) {
-            SteamCloudSheet(game: game)
+        .onDisappear { isVisible = false }
+        .sheet(isPresented: $showingSteamCloud, onDismiss: {
+            loadSaves()
+            if steamSession.authentication == .signedOut { showingSteamSettings = true }
+        }) {
+            if let selectedCloudAppID {
+                SteamCloudSheet(game: game, appID: selectedCloudAppID)
+            }
+        }
+        .sheet(isPresented: $showingSteamSettings, onDismiss: {
+            if steamSession.authentication == .signedIn { checkSteamAndDownload() }
+        }) {
+            SettingsSheet(openSteamOnAppear: true).environmentObject(library)
         }
         .sheet(item: $pendingImport) { preview in
             SaveImportReviewSheet(game: game, initialPreview: preview) { result in
@@ -88,6 +121,57 @@ struct SaveManagerSheet: View {
                 message = result.backupDirectory == nil
                     ? "✓ 已导入 \(result.fileCount) 个文件"
                     : "✓ 已导入 \(result.fileCount) 个文件；原文件备份于 \(result.backupDirectory!.path)"
+            }
+        }
+    }
+
+    private func checkSteamAndDownload() {
+        guard let metadata = matchedSteamGame else {
+            message = "这款游戏尚未可靠匹配到 Steam，无法自动下载。"
+            return
+        }
+        isCheckingSteam = true
+        steamSession.verifyAuthentication { isSignedIn in
+            guard isVisible else { return }
+            guard isSignedIn else {
+                isCheckingSteam = false
+                showingSteamSettings = true
+                return
+            }
+            Task {
+                do {
+                    let cloudGames = try await steamSession.cloudGames()
+                    guard isVisible else { return }
+                    let localNames = [game.name, game.path.lastPathComponent]
+                    let matchingCloudGames = cloudGames.filter {
+                        SteamMetadataService.cloudTitlesMatch($0.name, localNames: localNames, matchedName: metadata.name)
+                    }
+                    var ownedAppID: Int?
+                    for cloudGame in matchingCloudGames {
+                        if try await steamSession.ownsGame(appID: cloudGame.appID) {
+                            ownedAppID = cloudGame.appID
+                            break
+                        }
+                    }
+                    if ownedAppID == nil && matchingCloudGames.isEmpty {
+                        if try await steamSession.ownsGame(appID: metadata.appID) {
+                            ownedAppID = metadata.appID
+                        }
+                    }
+                    guard isVisible else { return }
+                    if let ownedAppID {
+                        selectedCloudAppID = ownedAppID
+                        showingSteamCloud = true
+                    } else {
+                        message = matchingCloudGames.isEmpty
+                            ? "当前 Steam 账户未找到与《\(game.name)》对应的云端文件或已拥有的游戏。"
+                            : "找到了《\(game.name)》的云端文件，但无法确认当前账户拥有对应的 Steam 版本。"
+                    }
+                } catch {
+                    guard isVisible else { return }
+                    message = "无法检查 Steam 游戏库：\(error.localizedDescription)"
+                }
+                isCheckingSteam = false
             }
         }
     }
@@ -179,7 +263,7 @@ struct SaveLocationRow: View {
             .controlSize(.small)
         }
         .padding(10)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(MythicTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 

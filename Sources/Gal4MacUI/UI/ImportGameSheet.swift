@@ -22,7 +22,7 @@ struct ImportGameSheet: View {
             Text("导入游戏")
                 .font(.title2.bold())
 
-            Text("选择游戏目录，或选择压缩包（zip/rar/7z）自动解压。")
+            Text("选择游戏目录，或选择压缩包（zip/rar/7z，支持常见分卷）自动解压。")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -35,7 +35,7 @@ struct ImportGameSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color(nsColor: .controlBackgroundColor))
+                    .background(MythicTheme.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 Button("选择…") {
                     selectGame()
@@ -84,7 +84,7 @@ struct ImportGameSheet: View {
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(nsColor: .controlBackgroundColor))
+                .background(MythicTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
@@ -107,13 +107,15 @@ struct ImportGameSheet: View {
         }
         .padding(20)
         .frame(width: 540)
+        .background(MythicTheme.background)
+        .tint(MythicTheme.accent)
     }
 
     private var displayPath: String {
         if let url = selectedURL {
             return url.path
         }
-        return "未选择（支持目录、zip、rar、7z）"
+        return "未选择（支持目录、zip、rar、7z 及分卷）"
     }
 
     private func selectGame() {
@@ -122,12 +124,13 @@ struct ImportGameSheet: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = "选择游戏目录或压缩包"
-        panel.message = "选择游戏根目录，或者选择 zip/rar/7z 压缩包自动解压"
+        panel.message = "选择游戏根目录，或者选择 zip/rar/7z 压缩包或分卷首卷自动解压"
 
         // 允许的文件类型
         var types: [UTType] = [.folder, .zip]
         if let rar = UTType(filenameExtension: "rar") { types.append(rar) }
         if let sevenZ = UTType(filenameExtension: "7z") { types.append(sevenZ) }
+        if let volume = UTType(filenameExtension: "001") { types.append(volume) }
         panel.allowedContentTypes = types
 
         if panel.runModal() == .OK, let url = panel.url {

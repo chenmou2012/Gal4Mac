@@ -40,6 +40,8 @@ struct AddLibrarySheet: View {
         }
         .padding(20)
         .frame(width: 480)
+        .background(MythicTheme.background)
+        .tint(MythicTheme.accent)
     }
 
     private func selectFolder() {
@@ -65,10 +67,22 @@ struct AddLibrarySheet: View {
 struct SettingsSheet: View {
     @EnvironmentObject var library: GameLibraryViewModel
     @Environment(\.dismiss) var dismiss
+    @ObservedObject private var steamSession = SteamWebSession.shared
+    @State private var selectedPage: SettingsPage
+    @State private var steamWebID = UUID()
     @State private var selectedImportGameID: UUID?
     @State private var transferStatus: String?
     @State private var pendingImports: [PendingSaveImport] = []
     @State private var activeImport: PendingSaveImport?
+
+    private enum SettingsPage: String, CaseIterable {
+        case general = "常规"
+        case steam = "Steam"
+    }
+
+    init(openSteamOnAppear: Bool = false) {
+        _selectedPage = State(initialValue: openSteamOnAppear ? .steam : .general)
+    }
 
     private struct PendingSaveImport: Identifiable {
         let id = UUID()
@@ -81,117 +95,129 @@ struct SettingsSheet: View {
             Text("设置")
                 .font(.title2.bold())
 
-            // Engine 状态
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Mythic Engine", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                if let version = EngineManager.currentVersion() {
-                    Text("版本: \(version.string)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            Picker("设置分类", selection: $selectedPage) {
+                ForEach(SettingsPage.allCases, id: \.self) { page in
+                    Text(page.rawValue).tag(page)
                 }
-                Text("路径: \(EngineManager.engineDirectory.path)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
             }
-            .padding()
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .pickerStyle(.segmented)
+            .labelsHidden()
 
-            // 一键存档备份与恢复
-            VStack(alignment: .leading, spacing: 10) {
-                Text("存档")
-                    .font(.headline)
-                HStack {
-                    Button("一键导出全部存档…", action: exportAllSaves)
-                        .disabled(library.games.isEmpty)
-                    Button("导入存档包…", action: importSaveArchives)
-                        .disabled(library.games.isEmpty)
-                    Spacer(minLength: 0)
-                }
-                HStack(spacing: 8) {
-                    Text("无法从文件名识别游戏时，导入到")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker("目标游戏", selection: $selectedImportGameID) {
-                        Text("选择游戏").tag(UUID?.none)
-                        ForEach(library.games) { game in
-                            Text(game.name).tag(Optional(game.id))
-                        }
+            if selectedPage == .general {
+                // Engine 状态
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Mythic Engine", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    if let version = EngineManager.currentVersion() {
+                        Text("版本: \(version.string)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .labelsHidden()
-                    .frame(maxWidth: 190)
-                }
-                if let transferStatus {
-                    Text(transferStatus)
-                        .font(.caption)
+                    Text("路径: \(EngineManager.engineDirectory.path)")
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(3)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
                 }
-            }
-            .padding()
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding()
+                .background(MythicTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
-            // 库路径列表
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("库路径 (\(library.config.libraryPaths.count))")
+                // 一键存档备份与恢复
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("存档")
                         .font(.headline)
-                    Spacer()
-                    Button {
-                        library.showingAddLibrary = true
-                    } label: {
-                        Label("添加", systemImage: "plus")
+                    HStack {
+                        Button("一键导出全部存档…", action: exportAllSaves)
+                            .disabled(library.games.isEmpty)
+                        Button("导入存档包…", action: importSaveArchives)
+                            .disabled(library.games.isEmpty)
+                        Spacer(minLength: 0)
                     }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                }
-
-                if library.config.libraryPaths.isEmpty {
-                    Text("未配置库路径")
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
-                } else {
-                    List {
-                        ForEach(library.config.libraryPaths, id: \.self) { path in
-                            HStack {
-                                Image(systemName: library.isAccessible(path) ? "external.drive.connected.to.line.below" : "external.drive.badge.exclamationmark")
-                                    .foregroundStyle(library.isAccessible(path) ? .green : .orange)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(path.lastPathComponent)
-                                    Text(path.path)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                                Spacer()
-                                if !library.isAccessible(path) {
-                                    Text("不可访问")
-                                        .font(.caption2)
-                                        .foregroundStyle(.orange)
-                                }
-                                Button {
-                                    library.removeLibrary(path)
-                                } label: {
-                                    Image(systemName: "minus.circle")
-                                }
-                                .buttonStyle(.borderless)
-                                .foregroundStyle(.red)
+                    HStack(spacing: 8) {
+                        Text("无法从文件名识别游戏时，导入到")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("目标游戏", selection: $selectedImportGameID) {
+                            Text("选择游戏").tag(UUID?.none)
+                            ForEach(library.games) { game in
+                                Text(game.name).tag(Optional(game.id))
                             }
-                            .padding(.vertical, 4)
                         }
+                        .labelsHidden()
+                        .frame(maxWidth: 190)
                     }
-                    .listStyle(.bordered)
-                    .frame(minHeight: 160)
+                    if let transferStatus {
+                        Text(transferStatus)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(3)
+                    }
                 }
-            }
+                .padding()
+                .background(MythicTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
-            Spacer()
+                // 库路径列表
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("库路径 (\(library.config.libraryPaths.count))")
+                            .font(.headline)
+                        Spacer()
+                        Button {
+                            library.showingAddLibrary = true
+                        } label: {
+                            Label("添加", systemImage: "plus")
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                    }
+
+                    if library.config.libraryPaths.isEmpty {
+                        Text("未配置库路径")
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 8)
+                    } else {
+                        List {
+                            ForEach(library.config.libraryPaths, id: \.self) { path in
+                                HStack {
+                                    Image(systemName: library.isAccessible(path) ? "external.drive.connected.to.line.below" : "external.drive.badge.exclamationmark")
+                                        .foregroundStyle(library.isAccessible(path) ? .green : .orange)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(path.lastPathComponent)
+                                        Text(path.path)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                    Spacer()
+                                    if !library.isAccessible(path) {
+                                        Text("不可访问")
+                                            .font(.caption2)
+                                            .foregroundStyle(.orange)
+                                    }
+                                    Button {
+                                        library.removeLibrary(path)
+                                    } label: {
+                                        Image(systemName: "minus.circle")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .foregroundStyle(.red)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                        .listStyle(.bordered)
+                        .frame(minHeight: 160)
+                    }
+                }
+
+                Spacer()
+            } else {
+                steamSettings
+            }
 
             HStack {
                 Spacer()
@@ -201,7 +227,10 @@ struct SettingsSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 600, height: 620)
+        .frame(width: selectedPage == .steam ? 920 : 600, height: selectedPage == .steam ? 720 : 620)
+        .background(MythicTheme.background)
+        .tint(MythicTheme.accent)
+        .onDisappear { steamSession.release(ownerID: steamWebID) }
         .sheet(item: $activeImport, onDismiss: showNextImport) { item in
             SaveImportReviewSheet(game: item.game, initialPreview: item.preview) { result in
                 transferStatus = "已导入 \(item.game.name) 的 \(result.fileCount) 个文件"
@@ -209,6 +238,63 @@ struct SettingsSheet: View {
                     transferStatus! += "；覆盖文件的备份保存在 \(backup.path)"
                 }
             }
+        }
+    }
+
+    private var steamSettings: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Steam 云存档")
+                    .font(.headline)
+                Spacer()
+                Button("检查登录状态") {
+                    steamSession.verifyAuthentication { _ in }
+                }
+                .disabled(steamSession.authentication == .checking)
+            }
+
+            Label(steamStatusText, systemImage: steamStatusSymbol)
+                .foregroundStyle(steamStatusColor)
+                .accessibilityLabel("Steam 登录状态：\(steamStatusText)")
+
+            Text("在下方 Steam 官方页面登录一次。登录状态会用于之后的云存档下载。")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            SteamRemoteStorageWebView(
+                ownerID: steamWebID,
+                pageURL: SteamWebSession.accountURL,
+                onDownloaded: { url, _ in try? FileManager.default.removeItem(at: url) },
+                onError: { _ in }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private var steamStatusText: String {
+        switch steamSession.authentication {
+        case .unknown: return "等待检查"
+        case .checking: return "正在检查登录状态…"
+        case .signedIn: return "已登录，可下载云存档"
+        case .signedOut: return "未登录，请在下方登录"
+        case .unavailable: return "无法连接 Steam，请稍后重试"
+        }
+    }
+
+    private var steamStatusSymbol: String {
+        switch steamSession.authentication {
+        case .signedIn: return "checkmark.circle.fill"
+        case .unavailable: return "exclamationmark.triangle.fill"
+        case .unknown, .checking, .signedOut: return "person.crop.circle"
+        }
+    }
+
+    private var steamStatusColor: Color {
+        switch steamSession.authentication {
+        case .signedIn: return .green
+        case .unavailable: return .orange
+        case .unknown, .checking, .signedOut: return .secondary
         }
     }
 
