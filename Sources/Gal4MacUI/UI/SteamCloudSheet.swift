@@ -141,7 +141,7 @@ struct SteamCloudSheet: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "选择存档目录"
-        panel.message = "请选择 \(game.name) 实际读取存档的目录"
+        panel.message = "请选择 \(game.displayName) 实际读取存档的目录"
         panel.directoryURL = targetDirectory ?? game.path
         if panel.runModal() == .OK {
             targetDirectory = panel.url

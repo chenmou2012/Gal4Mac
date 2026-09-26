@@ -20,7 +20,7 @@ struct SaveManagerSheet: View {
         VStack(alignment: .leading, spacing: 20) {
             GalSheetHeader(
                 title: "存档管理",
-                subtitle: "\(game.name) · 检查本地存档，并安全导入或导出 ZIP。",
+                subtitle: "\(game.displayName) · 检查本地存档，并安全导入或导出 ZIP。",
                 symbol: "archivebox"
             )
 
@@ -117,7 +117,7 @@ struct SaveManagerSheet: View {
 
     private func exportSaves(from location: SaveManager.SaveLocation) {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(game.name)_saves.zip"
+        panel.nameFieldStringValue = "\(game.displayName)_saves.zip"
         panel.allowedContentTypes = [.zip]
         panel.canCreateDirectories = true
         panel.prompt = "导出"

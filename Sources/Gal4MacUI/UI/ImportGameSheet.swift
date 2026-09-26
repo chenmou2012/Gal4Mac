@@ -11,6 +11,7 @@ struct ImportGameSheet: View {
     @State private var selectedURL: URL?
     @State private var selectedEngine: EngineType = .unknown
     @State private var selectedExecutable: String = ""
+    @State private var displayName = ""
     @State private var executableOptions: [String] = []
     @State private var isExtracting = false
     @State private var extractMessage: String?
@@ -58,6 +59,11 @@ struct ImportGameSheet: View {
                     Label("游戏配置", systemImage: "gamecontroller")
                         .font(.headline)
 
+                    TextField("显示名称", text: $displayName)
+                    Text("此名称会显示在侧栏、统计和游戏详情中。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
                     Picker("引擎", selection: $selectedEngine) {
                         ForEach(EngineType.allCases, id: \.self) { engine in
                             Text(engine.displayName).tag(engine)
@@ -95,7 +101,7 @@ struct ImportGameSheet: View {
                 Spacer()
                 Button("导入") {
                     if let url = selectedURL {
-                        library.addGame(at: url, engine: selectedEngine, executable: selectedExecutable)
+                        library.addGame(at: url, engine: selectedEngine, executable: selectedExecutable, customDisplayName: displayName)
                         dismiss()
                     }
                 }
@@ -186,6 +192,8 @@ struct ImportGameSheet: View {
     }
 
     private func detectGame(at url: URL) {
+        let existing = library.games.first { $0.path.standardizedFileURL == url.standardizedFileURL }
+        displayName = existing?.customDisplayName ?? url.lastPathComponent
         selectedEngine = detector.detect(at: url)
         executableOptions = ((try? FileManager.default.contentsOfDirectory(
             at: url,

@@ -162,7 +162,7 @@ struct StatisticsView: View {
                 Chart(mostPlayed) { game in
                     BarMark(
                         x: .value("游玩分钟", game.playtime / 60),
-                        y: .value("游戏", game.name)
+                        y: .value("游戏", game.displayName)
                     )
                     .foregroundStyle(GalUITheme.accent.gradient)
                     .cornerRadius(5)
@@ -232,7 +232,7 @@ struct StatisticsView: View {
                                     .background(GalUITheme.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
 
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(game.name)
+                                    Text(game.displayName)
                                         .font(.callout.weight(.medium))
                                         .lineLimit(1)
                                     Label(
@@ -254,7 +254,7 @@ struct StatisticsView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .help("打开 \(game.name) 详情")
+                        .help("打开 \(game.displayName) 详情")
                     }
                 }
             }

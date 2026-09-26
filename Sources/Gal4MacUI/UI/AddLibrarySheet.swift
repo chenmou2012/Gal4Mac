@@ -127,7 +127,7 @@ struct SettingsView: View {
                             Picker("目标游戏", selection: $selectedImportGameID) {
                                 Text("选择游戏").tag(UUID?.none)
                                 ForEach(library.games) { game in
-                                    Text(game.name).tag(Optional(game.id))
+                                    Text(game.displayName).tag(Optional(game.id))
                                 }
                             }
                             .labelsHidden()
@@ -217,7 +217,7 @@ struct SettingsView: View {
         .frame(maxWidth: 760, maxHeight: .infinity, alignment: .topLeading)
         .sheet(item: $activeImport, onDismiss: showNextImport) { item in
             SaveImportReviewSheet(game: item.game, initialPreview: item.preview) { result in
-                transferStatus = "已导入 \(item.game.name) 的 \(result.fileCount) 个文件"
+                transferStatus = "已导入 \(item.game.displayName) 的 \(result.fileCount) 个文件"
                 if let backup = result.backupDirectory {
                     transferStatus! += "；覆盖文件的备份保存在 \(backup.path)"
                 }
@@ -245,12 +245,12 @@ struct SettingsView: View {
             for game in games {
                 let locations = manager.locateSaves(for: game)
                 guard !locations.isEmpty else {
-                    skipped.append(game.name)
+                    skipped.append(game.displayName)
                     continue
                 }
                 for location in locations {
                     let suffix = locations.count > 1 ? "_\(safeSaveFileComponent(location.path.lastPathComponent))" : ""
-                    let filename = "\(safeSaveFileComponent(game.name))\(suffix)_saves.zip"
+                    let filename = "\(safeSaveFileComponent(game.displayName))\(suffix)_saves.zip"
                     do {
                         try manager.exportSaves(
                             from: [location],
@@ -258,7 +258,7 @@ struct SettingsView: View {
                         )
                         exported += 1
                     } catch {
-                        failures.append("\(game.name): \(error.localizedDescription)")
+                        failures.append("\(game.displayName): \(error.localizedDescription)")
                     }
                 }
             }
@@ -291,8 +291,10 @@ struct SettingsView: View {
             for archiveURL in archiveURLs {
                 let stem = archiveURL.deletingPathExtension().lastPathComponent
                 let matchedGame = games
-                    .sorted { $0.name.count > $1.name.count }
-                    .first { stem == $0.name || stem.hasPrefix("\($0.name)_") }
+                    .sorted { max($0.name.count, $0.displayName.count) > max($1.name.count, $1.displayName.count) }
+                    .first { game in
+                        [game.displayName, game.name].contains { stem == $0 || stem.hasPrefix("\($0)_") }
+                    }
                 guard let game = matchedGame ?? fallbackGame,
                       let target = saveImportTarget(for: stem, game: game, manager: manager) else {
                     skipped.append(archiveURL.lastPathComponent)
@@ -355,7 +357,8 @@ private func saveExportSummary(exported: Int, skipped: [String], failures: [Stri
 
 private func saveImportTarget(for stem: String, game: Game, manager: SaveManager) -> URL? {
     let normalizedStem = stem.replacingOccurrences(of: "-\\d+$", with: "", options: .regularExpression)
-    let prefix = "\(game.name)_"
+    let archiveName = [game.displayName, game.name].first { normalizedStem.hasPrefix("\($0)_") } ?? game.name
+    let prefix = "\(archiveName)_"
     if normalizedStem.hasPrefix(prefix), normalizedStem.hasSuffix("_saves") {
         let locationName = String(normalizedStem.dropFirst(prefix.count).dropLast("_saves".count))
         if !locationName.isEmpty,

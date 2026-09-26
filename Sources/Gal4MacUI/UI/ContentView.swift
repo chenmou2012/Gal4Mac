@@ -32,7 +32,8 @@ struct ContentView: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return library.games }
         return library.games.filter {
-            $0.name.localizedCaseInsensitiveContains(query)
+            $0.displayName.localizedCaseInsensitiveContains(query)
+                || $0.name.localizedCaseInsensitiveContains(query)
                 || $0.engine.displayName.localizedCaseInsensitiveContains(query)
         }
     }
@@ -195,7 +196,7 @@ struct ContentView: View {
 
                 GameShowcase(
                     game: game,
-                    displayName: metadata?.name ?? game.name,
+                    displayName: game.displayName,
                     releaseDate: metadata?.releaseDate,
                     canLaunch: library.launchingGameId == nil && library.isAccessible(game.path),
                     isLaunching: library.launchingGameId == game.id,
@@ -373,7 +374,7 @@ private struct GameShowcase: View {
                 .buttonStyle(.borderedProminent)
                 .tint(GalTheme.accent)
                 .disabled(!canLaunch)
-                .help(canLaunch ? "启动 \(game.name)" : (isLaunching ? "游戏正在启动" : "游戏路径不可访问"))
+                .help(canLaunch ? "启动 \(game.displayName)" : (isLaunching ? "游戏正在启动" : "游戏路径不可访问"))
 
                 Button(action: savesAction) {
                     Label("存档", systemImage: "tray.full")
@@ -427,7 +428,7 @@ private struct GameLibraryRow: View {
     let game: Game
 
     var body: some View {
-        Text(game.name)
+        Text(game.displayName)
             .lineLimit(1)
         .padding(.vertical, 3)
     }

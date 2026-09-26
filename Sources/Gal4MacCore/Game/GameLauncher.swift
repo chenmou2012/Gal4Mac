@@ -113,7 +113,7 @@ public final class GameLauncher {
         let args = launchArguments(for: game, fullscreen: fullscreen, width: width, height: height, additionalArgs: additionalArgs)
 
         // 6. 启动
-        print("🚀 启动 \(game.name) (\(game.engine.displayName))")
+        print("🚀 启动 \(game.displayName) (\(game.engine.displayName))")
         if audio.latencyMs != nil {
             print("🔊 音频延迟: \(audio.latencyMs!)ms")
         }

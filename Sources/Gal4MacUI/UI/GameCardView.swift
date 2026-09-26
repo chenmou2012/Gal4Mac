@@ -21,7 +21,7 @@ struct GameCardView: View {
                     Image(systemName: iconName)
                         .font(.system(size: 64))
                         .foregroundStyle(.white.opacity(0.9))
-                    Text(game.name.prefix(2).uppercased())
+                    Text(game.displayName.prefix(2).uppercased())
                         .font(.system(size: 32, weight: .bold))
                         .foregroundStyle(.white.opacity(0.3))
                 }
@@ -31,7 +31,7 @@ struct GameCardView: View {
 
             // 信息区域
             VStack(alignment: .leading, spacing: 6) {
-                Text(game.name)
+                Text(game.displayName)
                     .font(.system(.headline))
                     .lineLimit(1)
                     .truncationMode(.tail)

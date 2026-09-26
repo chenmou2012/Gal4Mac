@@ -214,7 +214,7 @@ public final class LibraryManager {
 
     /// 手动添加单个游戏
     @discardableResult
-    public func addGame(at path: URL, engine selectedEngine: EngineType? = nil, executable selectedExecutable: String? = nil) throws -> Game? {
+    public func addGame(at path: URL, engine selectedEngine: EngineType? = nil, executable selectedExecutable: String? = nil, customDisplayName: String? = nil) throws -> Game? {
         let engine = selectedEngine ?? detector.detect(at: path)
         guard let executable = selectedExecutable ?? detector.findExecutable(at: path, engine: engine) else {
             return nil
@@ -225,10 +225,21 @@ public final class LibraryManager {
         }
 
         let existing = loadLibrary().first { $0.path.standardizedFileURL == path.standardizedFileURL }
+        let gameName = existing?.name ?? path.lastPathComponent
+        let trimmedDisplayName = customDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedDisplayName: String?
+        if customDisplayName != nil {
+            resolvedDisplayName = (trimmedDisplayName?.isEmpty == false && trimmedDisplayName != gameName)
+                ? trimmedDisplayName
+                : nil
+        } else {
+            resolvedDisplayName = existing?.customDisplayName
+        }
 
         let game = Game(
             id: existing?.id ?? UUID(),
-            name: existing?.name ?? path.lastPathComponent,
+            name: gameName,
+            customDisplayName: resolvedDisplayName,
             path: path,
             executable: executable,
             engine: engine,
@@ -257,7 +268,9 @@ public final class LibraryManager {
     public func findGame(named name: String) -> Game? {
         loadLibrary().first { game in
             game.name.localizedCaseInsensitiveContains(name) ||
-            game.name == name
+            game.name == name ||
+            game.displayName.localizedCaseInsensitiveContains(name) ||
+            game.displayName == name
         }
     }
 
