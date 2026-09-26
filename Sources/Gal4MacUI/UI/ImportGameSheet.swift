@@ -11,6 +11,7 @@ struct ImportGameSheet: View {
     @State private var selectedURL: URL?
     @State private var selectedEngine: EngineType = .unknown
     @State private var selectedExecutable: String = ""
+    @State private var displayName = ""
     @State private var executableOptions: [String] = []
     @State private var isExtracting = false
     @State private var extractMessage: String?
@@ -18,29 +19,26 @@ struct ImportGameSheet: View {
     private let detector = EngineDetector()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("导入游戏")
-                .font(.title2.bold())
+        VStack(alignment: .leading, spacing: 20) {
+            GalSheetHeader(
+                title: "导入游戏",
+                subtitle: "选择游戏文件夹，或导入 ZIP、RAR、7Z 压缩包并自动解压。",
+                symbol: "square.and.arrow.down"
+            )
 
-            Text("选择游戏目录，或选择压缩包（zip/rar/7z）自动解压。")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
+            HStack(spacing: 12) {
+                Image(systemName: selectedURL == nil ? "folder" : "folder.fill")
+                    .foregroundStyle(selectedURL == nil ? .secondary : Color.accentColor)
                 Text(displayPath)
                     .font(.callout)
                     .foregroundStyle(selectedURL == nil ? .secondary : .primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                Button("选择…") {
-                    selectGame()
-                }
+                Button("选择…", action: selectGame)
             }
+            .padding(12)
+            .galSheetCard()
 
             // 解压进度
             if isExtracting {
@@ -50,6 +48,9 @@ struct ImportGameSheet: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .galSheetCard()
             }
 
             // 检测结果
@@ -57,6 +58,11 @@ struct ImportGameSheet: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("游戏配置", systemImage: "gamecontroller")
                         .font(.headline)
+
+                    TextField("显示名称", text: $displayName)
+                    Text("此名称会显示在侧栏、统计和游戏详情中。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     Picker("引擎", selection: $selectedEngine) {
                         ForEach(EngineType.allCases, id: \.self) { engine in
@@ -82,10 +88,9 @@ struct ImportGameSheet: View {
                             .foregroundStyle(.orange)
                     }
                 }
-                .padding(12)
+                .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .galSheetCard()
             }
 
             Spacer()
@@ -96,7 +101,7 @@ struct ImportGameSheet: View {
                 Spacer()
                 Button("导入") {
                     if let url = selectedURL {
-                        library.addGame(at: url, engine: selectedEngine, executable: selectedExecutable)
+                        library.addGame(at: url, engine: selectedEngine, executable: selectedExecutable, customDisplayName: displayName)
                         dismiss()
                     }
                 }
@@ -105,8 +110,9 @@ struct ImportGameSheet: View {
                 .disabled(selectedURL == nil || selectedExecutable.isEmpty || isExtracting)
             }
         }
-        .padding(20)
-        .frame(width: 540)
+        .padding(24)
+        .frame(width: 560)
+        .frame(minHeight: 390, alignment: .topLeading)
     }
 
     private var displayPath: String {
@@ -186,6 +192,8 @@ struct ImportGameSheet: View {
     }
 
     private func detectGame(at url: URL) {
+        let existing = library.games.first { $0.path.standardizedFileURL == url.standardizedFileURL }
+        displayName = existing?.customDisplayName ?? url.lastPathComponent
         selectedEngine = detector.detect(at: url)
         executableOptions = ((try? FileManager.default.contentsOfDirectory(
             at: url,

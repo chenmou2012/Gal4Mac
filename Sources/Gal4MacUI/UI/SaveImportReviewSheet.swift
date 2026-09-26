@@ -20,40 +20,77 @@ struct SaveImportReviewSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("确认导入存档")
-                .font(.title2.bold())
-            Text("压缩包：\(preview.archiveURL.lastPathComponent)")
-            Text("目标目录：")
-                .fontWeight(.semibold)
-            Text(preview.targetDirectory.path)
-                .font(.system(.callout, design: .monospaced))
-                .textSelection(.enabled)
-            Button("选择其他存档目录…", action: chooseDirectory)
-                .disabled(isWorking)
+        VStack(alignment: .leading, spacing: 18) {
+            GalSheetHeader(
+                title: "确认导入存档",
+                subtitle: "检查文件和目标位置后再继续。覆盖的原文件会先备份。",
+                symbol: "archivebox"
+            )
 
-            Text("将导入 \(preview.files.count) 个文件；其中 \(preview.overwrittenFiles.count) 个同名文件会被覆盖并备份。")
-            if !preview.overwrittenFiles.isEmpty {
-                Text("将覆盖：\(preview.overwrittenFiles.prefix(8).joined(separator: "、"))\(preview.overwrittenFiles.count > 8 ? "…" : "")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 11) {
+                Label(preview.archiveURL.lastPathComponent, systemImage: "doc.zipper")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Divider()
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "folder")
+                        .foregroundStyle(Color.accentColor)
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("存档目标文件夹")
+                            .font(.subheadline.weight(.semibold))
+                        Text(preview.targetDirectory.path)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                        Button("选择其他文件夹…", action: chooseDirectory)
+                            .disabled(isWorking)
+                    }
+                }
             }
+            .padding(14)
+            .galSheetCard()
+
+            HStack(spacing: 10) {
+                Image(systemName: preview.overwrittenFiles.isEmpty ? "checkmark.circle" : "exclamationmark.arrow.circlepath")
+                    .foregroundStyle(preview.overwrittenFiles.isEmpty ? .green : .orange)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("导入 \(preview.files.count) 个文件 · 覆盖 \(preview.overwrittenFiles.count) 个")
+                        .font(.subheadline.weight(.semibold))
+                    if !preview.overwrittenFiles.isEmpty {
+                        Text("将替换：\(preview.overwrittenFiles.prefix(8).joined(separator: "、"))\(preview.overwrittenFiles.count > 8 ? "…" : "")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(13)
+            .galSheetCard()
+
             if let errorMessage {
-                Text(errorMessage)
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
+                    .font(.callout)
+                    .textSelection(.enabled)
             }
-            Spacer()
+
             HStack {
                 Spacer()
                 Button("取消") { dismiss() }
                     .disabled(isWorking)
+                    .keyboardShortcut(.cancelAction)
                 Button(isWorking ? "导入中…" : "确认导入", action: importArchive)
                     .buttonStyle(.borderedProminent)
-                    .disabled(isWorking)
+                    .disabled(isWorking || preview.files.isEmpty)
+                    .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(20)
-        .frame(width: 610, height: 310)
+        .padding(24)
+        .frame(width: 620)
+        .frame(minHeight: 410, alignment: .topLeading)
     }
 
     private func chooseDirectory() {
@@ -62,7 +99,7 @@ struct SaveImportReviewSheet: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "选择存档目录"
-        panel.message = "请选择 \(game.name) 实际读取存档的目录"
+        panel.message = "请选择 \(game.displayName) 实际读取存档的目录"
         panel.directoryURL = preview.targetDirectory
         guard panel.runModal() == .OK, let directory = panel.url else { return }
         isWorking = true

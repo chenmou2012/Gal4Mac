@@ -1,22 +1,39 @@
 import SwiftUI
 import Gal4MacCore
 
+private enum SidebarDestination: Hashable {
+    case game(UUID)
+    case statistics
+    case settings
+}
+
 struct ContentView: View {
     @EnvironmentObject var library: GameLibraryViewModel
-    @State private var showingSettings = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingDownload = false
-    @State private var selectedGameID: UUID?
+    @State private var sidebarSelection: SidebarDestination?
     @State private var searchText = ""
 
     private var selectedGame: Game? {
-        library.games.first { $0.id == selectedGameID } ?? library.games.first
+        if sidebarSelection == .settings || sidebarSelection == .statistics { return nil }
+        guard case .game(let id) = sidebarSelection else { return library.games.first }
+        return library.games.first { $0.id == id } ?? library.games.first
+    }
+
+    private var navigationTitle: String {
+        switch sidebarSelection {
+        case .statistics: return "统计"
+        case .settings: return "设置"
+        default: return "游戏库"
+        }
     }
 
     private var filteredGames: [Game] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return library.games }
         return library.games.filter {
-            $0.name.localizedCaseInsensitiveContains(query)
+            $0.displayName.localizedCaseInsensitiveContains(query)
+                || $0.name.localizedCaseInsensitiveContains(query)
                 || $0.engine.displayName.localizedCaseInsensitiveContains(query)
         }
     }
@@ -29,7 +46,14 @@ struct ContentView: View {
             } detail: {
                 ZStack {
                     LibraryBackdrop()
-                    if let game = selectedGame {
+                    if sidebarSelection == .statistics {
+                        StatisticsView(games: library.games) { game in
+                            sidebarSelection = .game(game.id)
+                        }
+                    } else if sidebarSelection == .settings {
+                        SettingsView()
+                            .environmentObject(library)
+                    } else if let game = selectedGame {
                         gameDetail(game)
                     } else {
                         emptyState
@@ -50,22 +74,19 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 18)
                     .padding(.bottom, 12)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                     .zIndex(1)
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.86), value: library.launchStatus)
-        .navigationTitle("Gal4Mac")
+        .animation(
+            reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.35, dampingFraction: 1),
+            value: library.launchStatus
+        )
         .preferredColorScheme(.dark)
+        .tint(GalTheme.accent)
+        .navigationTitle(navigationTitle)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Button { library.scanAll() } label: {
-                    Image(systemName: library.isScanning ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
-                }
-                .help("扫描游戏库")
-                .accessibilityLabel(library.isScanning ? "正在扫描游戏库" : "扫描游戏库")
-                .disabled(library.isScanning)
-
                 Menu {
                     Button { library.showingAddLibrary = true } label: { Label("添加游戏库", systemImage: "folder.badge.plus") }
                     Button { library.showingImportGame = true } label: { Label("导入游戏", systemImage: "plus") }
@@ -76,16 +97,18 @@ struct ContentView: View {
                 .help("添加游戏")
                 .accessibilityLabel("添加游戏、游戏库或下载")
 
-                Button { showingSettings = true } label: { Image(systemName: "gearshape") }
-                    .help("设置")
-                    .accessibilityLabel("设置")
+                Button { library.scanAll() } label: {
+                    Image(systemName: library.isScanning ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
+                }
+                .help("扫描游戏库")
+                .accessibilityLabel(library.isScanning ? "正在扫描游戏库" : "扫描游戏库")
+                .disabled(library.isScanning)
             }
         }
         .sheet(isPresented: $library.showingAddLibrary) { AddLibrarySheet().environmentObject(library) }
         .sheet(isPresented: $library.showingImportGame) { ImportGameSheet().environmentObject(library) }
         .sheet(isPresented: $showingDownload) { DownloadSheet().environmentObject(library) }
         .sheet(item: $library.showingSavesFor) { game in SaveManagerSheet(game: game).environmentObject(library) }
-        .sheet(isPresented: $showingSettings) { SettingsSheet().environmentObject(library) }
         .alert("错误", isPresented: Binding(
             get: { library.lastError != nil },
             set: { _ in library.lastError = nil }
@@ -95,105 +118,56 @@ struct ContentView: View {
             Text(library.lastError ?? "")
         }
         .onChange(of: library.games.map(\.id)) { _, ids in
-            if selectedGameID.map(ids.contains) != true, let first = ids.first { selectedGameID = first }
+            if case .game(let id) = sidebarSelection, !ids.contains(id) {
+                sidebarSelection = ids.first.map(SidebarDestination.game)
+            } else if sidebarSelection == nil {
+                sidebarSelection = ids.first.map(SidebarDestination.game)
+            }
         }
         .onAppear {
-            if selectedGameID == nil { selectedGameID = library.games.first?.id }
+            if sidebarSelection == nil {
+                sidebarSelection = library.games.first.map { .game($0.id) }
+            }
         }
     }
 
     private var gameSidebar: some View {
-        ZStack {
-            LibraryBackdrop()
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("GAL4MAC")
-                            .font(.system(.caption, design: .rounded, weight: .bold))
-                            .tracking(1.8)
-                            .foregroundStyle(GalTheme.accent)
-                        Text("游戏收藏")
-                            .font(.system(size: 23, weight: .bold, design: .rounded))
-                        Text("整理你的故事与冒险")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Text("\(library.games.count)")
-                        .font(.system(.title3, design: .rounded, weight: .bold).monospacedDigit())
-                        .foregroundStyle(.primary)
-                        .frame(width: 42, height: 42)
-                        .background(GalTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(GalTheme.border, lineWidth: 1))
-                }
-
-                HStack(spacing: 9) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("搜索游戏或引擎", text: $searchText)
-                        .textFieldStyle(.plain)
-                }
-                .font(.callout)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(GalTheme.surface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(GalTheme.border, lineWidth: 1))
-
-                HStack {
-                    Text("我的游戏")
-                        .font(.system(.caption, design: .rounded, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                    Spacer()
-                    if library.isScanning {
-                        ProgressView().controlSize(.small)
-                    }
-                }
-                .padding(.horizontal, 3)
-
+        List(selection: $sidebarSelection) {
+            Section("游戏库") {
                 if filteredGames.isEmpty {
                     ContentUnavailableView(
                         library.games.isEmpty ? "还没有游戏" : "没有匹配的游戏",
                         systemImage: library.games.isEmpty ? "gamecontroller" : "magnifyingglass",
                         description: Text(library.games.isEmpty ? "添加游戏库或导入游戏开始使用。" : "试试其他名称或引擎。")
                     )
-                    .frame(maxHeight: .infinity)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 8) {
-                            ForEach(filteredGames) { game in
-                                Button {
-                                    selectedGameID = game.id
-                                } label: {
-                                    GameLibraryRow(game: game, isSelected: selectedGameID == game.id)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("\(game.name), \(game.engine.displayName)")
-                                .accessibilityAddTraits(selectedGameID == game.id ? .isSelected : [])
-                                .contextMenu { gameActions(for: game) }
-                            }
-                        }
-                        .padding(.vertical, 2)
+                    ForEach(filteredGames) { game in
+                        GameLibraryRow(game: game)
+                            .tag(SidebarDestination.game(game.id))
+                            .contextMenu { gameActions(for: game) }
                     }
-                    .scrollIndicators(.hidden)
                 }
-
-                HStack(spacing: 9) {
-                    Circle()
-                        .fill(library.isScanning ? Color.orange : Color.green)
-                        .frame(width: 7, height: 7)
-                    Text(library.isScanning ? "正在扫描游戏库…" : "累计游玩 \(library.totalPlaytimeDescription)")
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 11)
-                .background(GalTheme.surface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(GalTheme.border, lineWidth: 1))
             }
-            .padding(16)
+            Section("管理") {
+                Label("统计", systemImage: "chart.bar.xaxis")
+                    .tag(SidebarDestination.statistics)
+                Label("设置", systemImage: "gearshape")
+                    .tag(SidebarDestination.settings)
+            }
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .searchable(text: $searchText, placement: .sidebar, prompt: "搜索游戏")
+        .overlay(alignment: .topTrailing) {
+            if library.isScanning {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(.trailing, 12)
+                    .padding(.top, 12)
+                    .help("正在扫描游戏库")
+            }
         }
         .onAppear {
             for game in library.games { library.loadSteamMetadata(for: game) }
@@ -222,7 +196,7 @@ struct ContentView: View {
 
                 GameShowcase(
                     game: game,
-                    displayName: metadata?.name ?? game.name,
+                    displayName: game.displayName,
                     releaseDate: metadata?.releaseDate,
                     canLaunch: library.launchingGameId == nil && library.isAccessible(game.path),
                     isLaunching: library.launchingGameId == game.id,
@@ -307,13 +281,11 @@ struct ContentView: View {
 
     private var emptyState: some View {
         VStack(spacing: 18) {
-            Image(systemName: "gamecontroller.fill")
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(GalTheme.accent)
-                .frame(width: 76, height: 76)
-                .background(GalTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            Image(systemName: "gamecontroller")
+                .font(.system(size: 34, weight: .regular))
+                .foregroundStyle(.secondary)
             VStack(spacing: 7) {
-                Text("准备好开始了吗？")
+                Text("欢迎来到 Gal4Mac")
                     .font(.title2.weight(.bold))
                 Text("添加游戏库或导入游戏，你的收藏会显示在这里。")
                     .font(.callout)
@@ -327,9 +299,7 @@ struct ContentView: View {
                     .buttonStyle(.bordered)
             }
         }
-        .padding(36)
-        .panelSurface(cornerRadius: 24)
-        .padding(28)
+        .padding(32)
     }
 }
 
@@ -346,24 +316,10 @@ private struct GameShowcase: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topLeading) {
-                LinearGradient(
-                    colors: [GalTheme.heroTop, GalTheme.heroBottom],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-
-                Circle()
-                    .fill(GalTheme.accent.opacity(0.13))
-                    .frame(width: 300, height: 300)
-                    .blur(radius: 1)
-                    .offset(x: 270, y: -130)
-                Circle()
-                    .stroke(.white.opacity(0.08), lineWidth: 1)
-                    .frame(width: 250, height: 250)
-                    .overlay {
-                        EngineLogoView(engine: game.engine, size: 76, color: .white.opacity(0.48))
-                    }
-                    .offset(x: 300, y: 35)
+                EngineLogoView(engine: game.engine, size: 132, color: .white.opacity(0.08))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(.trailing, 24)
+                    .padding(.top, 18)
 
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 8) {
@@ -376,13 +332,11 @@ private struct GameShowcase: View {
                     Spacer(minLength: 12)
 
                     Text(displayName)
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .tracking(-0.5)
+                        .font(.system(.largeTitle, design: .rounded, weight: .bold))
                         .lineLimit(3)
-                        .minimumScaleFactor(0.75)
+                        .minimumScaleFactor(0.8)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: 540, alignment: .leading)
-                        .shadow(color: .black.opacity(0.22), radius: 12, y: 3)
 
                     HStack(spacing: 6) {
                         Image(systemName: "star.fill")
@@ -390,18 +344,18 @@ private struct GameShowcase: View {
                         Text("兼容性 \(game.rating) / 5")
                             .font(.caption.weight(.semibold))
                         Text("·")
-                            .foregroundStyle(.white.opacity(0.55))
+                            .foregroundStyle(.tertiary)
                         Text(game.path.lastPathComponent)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.76))
+                    .foregroundStyle(.secondary)
                     .help("游戏目录：\(game.path.path)")
                 }
                 .padding(24)
             }
-            .frame(minHeight: 226)
+            .frame(minHeight: 220)
             .clipped()
 
             HStack(spacing: 10) {
@@ -420,7 +374,7 @@ private struct GameShowcase: View {
                 .buttonStyle(.borderedProminent)
                 .tint(GalTheme.accent)
                 .disabled(!canLaunch)
-                .help(canLaunch ? "启动 \(game.name)" : (isLaunching ? "游戏正在启动" : "游戏路径不可访问"))
+                .help(canLaunch ? "启动 \(game.displayName)" : (isLaunching ? "游戏正在启动" : "游戏路径不可访问"))
 
                 Button(action: savesAction) {
                     Label("存档", systemImage: "tray.full")
@@ -439,11 +393,11 @@ private struct GameShowcase: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
-            .background(GalTheme.surfaceRaised)
         }
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(GalTheme.border, lineWidth: 1))
-        .shadow(color: .black.opacity(0.2), radius: 20, y: 10)
+        .shadow(color: .black.opacity(0.10), radius: 12, y: 5)
         .accessibilityElement(children: .contain)
     }
 }
@@ -455,70 +409,28 @@ private struct ShowcaseTag: View {
     var body: some View {
         Label(title, systemImage: symbol)
             .font(.caption.weight(.medium))
-            .foregroundStyle(.white.opacity(0.88))
+            .foregroundStyle(.primary)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(.black.opacity(0.22), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 1))
     }
 }
 
 private enum GalTheme {
-    static let background = Color(red: 0.055, green: 0.060, blue: 0.095)
-    static let surface = Color(red: 0.105, green: 0.105, blue: 0.155)
-    static let surfaceRaised = Color(red: 0.145, green: 0.140, blue: 0.205)
-    static let border = Color.white.opacity(0.09)
-    static let accent = Color(red: 0.56, green: 0.40, blue: 0.96)
-    static let heroTop = Color(red: 0.19, green: 0.16, blue: 0.36)
-    static let heroBottom = Color(red: 0.11, green: 0.13, blue: 0.25)
+    static let background = Color(nsColor: .windowBackgroundColor)
+    static let border = Color.primary.opacity(0.08)
+    static let accent = Color(red: 0.40, green: 0.30, blue: 0.98)
     static let gold = Color(red: 1.0, green: 0.78, blue: 0.34)
 }
 
 private struct GameLibraryRow: View {
     let game: Game
-    let isSelected: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 8) {
-                Text(game.name)
-                    .font(.system(.body, design: .rounded, weight: .semibold))
-                    .lineLimit(1)
-                    .foregroundStyle(isSelected ? .white : .primary)
-                Spacer(minLength: 0)
-                if isSelected {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(GalTheme.accent)
-                }
-            }
-            HStack(spacing: 6) {
-                Text(game.engine.displayName)
-                if game.playtime > 0 {
-                    Text("·")
-                    Text(game.playtimeDescription)
-                }
-                Spacer(minLength: 0)
-                Label("\(game.rating)", systemImage: "star.fill")
-                    .labelStyle(.titleAndIcon)
-                    .foregroundStyle(GalTheme.gold.opacity(0.9))
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+        Text(game.displayName)
             .lineLimit(1)
-        }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .fill(isSelected ? GalTheme.accent.opacity(0.17) : GalTheme.surface.opacity(0.62))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .strokeBorder(isSelected ? GalTheme.accent.opacity(0.42) : GalTheme.border, lineWidth: 1)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .padding(.vertical, 3)
     }
 }
 
@@ -533,7 +445,7 @@ private struct StatTile: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(GalTheme.accent)
                 .frame(width: 32, height: 32)
-                .background(GalTheme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.caption)
@@ -623,7 +535,7 @@ private struct LibraryBackdrop: View {
         ZStack {
             GalTheme.background
             LinearGradient(
-                colors: [GalTheme.accent.opacity(0.08), .clear, .clear],
+                colors: [GalTheme.accent.opacity(0.035), .clear, .clear],
                 startPoint: .topTrailing,
                 endPoint: .bottomLeading
             )
@@ -634,7 +546,7 @@ private struct LibraryBackdrop: View {
 
 private extension View {
     func panelSurface(cornerRadius: CGFloat) -> some View {
-        background(GalTheme.surface, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(GalTheme.border, lineWidth: 1)

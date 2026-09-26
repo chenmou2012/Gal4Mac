@@ -18,6 +18,7 @@ public enum WineLocale: String, Codable, CaseIterable, Sendable {
 public struct Game: Codable, Identifiable, Equatable, Sendable {
     public let id: UUID
     public var name: String
+    public var customDisplayName: String?
     public var path: URL
     public var executable: String
     public var engine: EngineType
@@ -35,6 +36,7 @@ public struct Game: Codable, Identifiable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decode(UUID.self, forKey: .id)
         self.name = try c.decode(String.self, forKey: .name)
+        self.customDisplayName = try? c.decode(String.self, forKey: .customDisplayName)
         self.path = try c.decode(URL.self, forKey: .path)
         self.executable = try c.decode(String.self, forKey: .executable)
         self.engine = try c.decode(EngineType.self, forKey: .engine)
@@ -52,6 +54,7 @@ public struct Game: Codable, Identifiable, Equatable, Sendable {
     public init(
         id: UUID = UUID(),
         name: String,
+        customDisplayName: String? = nil,
         path: URL,
         executable: String,
         engine: EngineType,
@@ -64,6 +67,7 @@ public struct Game: Codable, Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.name = name
+        self.customDisplayName = customDisplayName
         self.path = path
         self.executable = executable
         self.engine = engine
@@ -86,6 +90,14 @@ public struct Game: Codable, Identifiable, Equatable, Sendable {
         case .experimental: return 3
         case .unsupported: return 1
         }
+    }
+
+    /// 用于界面展示的名称；没有自定义名称时回退到游戏原名。
+    public var displayName: String {
+        if let custom = customDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
+            return custom
+        }
+        return name
     }
 
     /// 可执行文件的完整路径

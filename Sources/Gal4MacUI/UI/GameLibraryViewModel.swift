@@ -57,6 +57,7 @@ final class GameLibraryViewModel: ObservableObject {
             do {
                 let executableName = URL(fileURLWithPath: game.executable).deletingPathExtension().lastPathComponent
                 let metadata = try await SteamMetadataService.lookup(names: [
+                    game.displayName,
                     game.name,
                     game.path.deletingPathExtension().lastPathComponent,
                     executableName
@@ -141,15 +142,15 @@ final class GameLibraryViewModel: ObservableObject {
     }
 
     /// 手动添加单个游戏
-    func addGame(at url: URL, engine: EngineType? = nil, executable: String? = nil) {
+    func addGame(at url: URL, engine: EngineType? = nil, executable: String? = nil, customDisplayName: String? = nil) {
         do {
-            if let game = try manager.addGame(at: url, engine: engine, executable: executable) {
+            if let game = try manager.addGame(at: url, engine: engine, executable: executable, customDisplayName: customDisplayName) {
                 if let index = games.firstIndex(where: { $0.path == game.path }) {
                     games[index] = game
                 } else {
                     games.append(game)
                 }
-                lastError = "✓ 已导入: \(game.name) (\(game.engine.displayName))"
+                lastError = "✓ 已导入: \(game.displayName) (\(game.engine.displayName))"
             } else {
                 lastError = "未找到可执行文件。请确认选择的是游戏根目录。"
             }
@@ -174,7 +175,7 @@ final class GameLibraryViewModel: ObservableObject {
         activeGameProcess = nil
         activeWinePrefix = nil
         launchStatus = GameLaunchStatus(
-            gameName: game.name,
+            gameName: game.displayName,
             message: GameLaunchStage.checkingEnvironment.message,
             detail: game.engine.displayName,
             symbol: GameLaunchStage.checkingEnvironment.symbol,
@@ -189,7 +190,7 @@ final class GameLibraryViewModel: ObservableObject {
                         DispatchQueue.main.async { [weak self] in
                             guard let self, self.activeLaunchToken == launchToken else { return }
                             self.launchStatus = GameLaunchStatus(
-                                gameName: game.name,
+                                gameName: game.displayName,
                                 message: stage.message,
                                 detail: game.engine.displayName,
                                 symbol: stage.symbol,
@@ -215,7 +216,7 @@ final class GameLibraryViewModel: ObservableObject {
                             self.activeGameProcess = nil
                             self.activeWinePrefix = nil
                             self.launchStatus = GameLaunchStatus(
-                                gameName: game.name,
+                                gameName: game.displayName,
                                 message: wasStoppedByUser ? "游戏已停止" : "游戏已退出",
                                 detail: "本次游玩 \(Game.formatDuration(elapsed))",
                                 symbol: wasStoppedByUser ? "stop.circle.fill" : "checkmark.circle.fill",
@@ -241,7 +242,7 @@ final class GameLibraryViewModel: ObservableObject {
                     self.activeGameProcess = nil
                     self.activeWinePrefix = nil
                     self.launchStatus = GameLaunchStatus(
-                        gameName: game.name,
+                        gameName: game.displayName,
                         message: "启动失败",
                         detail: error.localizedDescription,
                         symbol: "exclamationmark.triangle.fill",
@@ -265,7 +266,7 @@ final class GameLibraryViewModel: ObservableObject {
 
         isStoppingGame = true
         launchStatus = GameLaunchStatus(
-            gameName: game.name,
+            gameName: game.displayName,
             message: "正在停止游戏",
             detail: game.engine.displayName,
             symbol: "stop.fill",
