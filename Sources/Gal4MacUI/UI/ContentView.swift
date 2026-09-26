@@ -427,12 +427,8 @@ private struct GameLibraryRow: View {
     let game: Game
 
     var body: some View {
-        Label {
-            Text(game.name)
-                .lineLimit(1)
-        } icon: {
-            EngineLogoView(engine: game.engine, size: 17, color: .secondary)
-        }
+        Text(game.name)
+            .lineLimit(1)
         .padding(.vertical, 3)
     }
 }
