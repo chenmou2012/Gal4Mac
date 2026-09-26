@@ -3,6 +3,14 @@ import AppKit
 
 enum GalUITheme {
     static let accent = Color(red: 0.40, green: 0.30, blue: 0.98)
+    static let chartPalette: [Color] = [
+        accent,
+        Color(red: 0.30, green: 0.70, blue: 0.98),
+        Color(red: 0.30, green: 0.78, blue: 0.62),
+        Color(red: 0.98, green: 0.66, blue: 0.32),
+        Color(red: 0.95, green: 0.43, blue: 0.56),
+        Color(red: 0.30, green: 0.78, blue: 0.82)
+    ]
 }
 
 /// Shared sheet language: clear titles and restrained acrylic surfaces.
