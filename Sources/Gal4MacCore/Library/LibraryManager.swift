@@ -133,12 +133,7 @@ public final class LibraryManager {
         }
         // 合并到全局库
         var library = loadLibrary()
-        for game in allFound {
-            if !library.contains(where: { $0.path == game.path }) {
-                library.append(game)
-                print("✓ 发现游戏: \(game.name) (\(game.engine.displayName))")
-            }
-        }
+        mergeScannedGames(allFound, into: &library)
         // 移除已不存在的游戏（路径已删除）
         library.removeAll { !FileManager.default.fileExists(atPath: $0.path.path) }
 
@@ -194,16 +189,27 @@ public final class LibraryManager {
 
         if mergeToGlobal {
             var library = loadLibrary()
-            for game in foundGames {
-                if !library.contains(where: { $0.path == game.path }) {
-                    library.append(game)
-                    print("✓ 发现游戏: \(game.name) (\(game.engine.displayName))")
-                }
-            }
+            mergeScannedGames(foundGames, into: &library)
             try saveLibrary(library)
         }
 
         return foundGames
+    }
+
+    /// 将扫描结果合并到已保存条目：修正引擎/可执行文件，同时保留时长等用户数据。
+    private func mergeScannedGames(_ scannedGames: [Game], into library: inout [Game]) {
+        for scanned in scannedGames {
+            guard let index = library.firstIndex(where: {
+                $0.path.standardizedFileURL == scanned.path.standardizedFileURL
+            }) else {
+                library.append(scanned)
+                print("✓ 发现游戏: \(scanned.name) (\(scanned.engine.displayName))")
+                continue
+            }
+
+            library[index].engine = scanned.engine
+            library[index].executable = scanned.executable
+        }
     }
 
     /// 手动添加单个游戏
@@ -230,8 +236,6 @@ public final class LibraryManager {
             detectedAt: existing?.detectedAt ?? Date(),
             lastPlayed: existing?.lastPlayed,
             notes: existing?.notes ?? "",
-            rating: existing?.userRated == true ? existing?.rating : nil,
-            userRated: existing?.userRated ?? false,
             playtime: existing?.playtime ?? 0
         )
 

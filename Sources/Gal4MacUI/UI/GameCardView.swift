@@ -42,7 +42,7 @@ struct GameCardView: View {
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 4)
                     StarRatingDisplay(rating: game.rating)
-                        .help(game.userRated ? "我的兼容性评分：\(game.rating) 星" : "引擎预估兼容性：\(game.rating) 星")
+                        .help("根据游戏引擎自动计算的兼容性评分：\(game.rating) 星")
                 }
 
                 HStack {
@@ -112,21 +112,11 @@ struct GameCardView: View {
                 Label("存档管理", systemImage: "tray.full")
             }
             Divider()
-            Menu {
-                ForEach(1...5, id: \.self) { rating in
-                    Button("\(rating) 星") {
-                        library.updateRating(for: game, rating: rating)
-                    }
-                }
-            } label: {
-                Label("评价兼容性", systemImage: "star.fill")
-            }
             Button {
-                library.updateRating(for: game, rating: 0)
+                NSWorkspace.shared.open(game.path)
             } label: {
-                Label("清除评分", systemImage: "star.slash")
+                Label("打开游戏目录", systemImage: "folder")
             }
-            Divider()
             Menu {
                 Button(game.wineLocale == .automatic ? "✓ 自动（按引擎）" : "自动（按引擎）") {
                     library.updateWineLocale(for: game, locale: .automatic)

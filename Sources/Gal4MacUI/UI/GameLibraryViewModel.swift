@@ -2,6 +2,14 @@ import Foundation
 import SwiftUI
 import Gal4MacCore
 
+struct GameLaunchStatus: Equatable {
+    let gameName: String
+    let message: String
+    let detail: String?
+    let symbol: String
+    let isInProgress: Bool
+}
+
 /// 游戏库视图模型
 @MainActor
 final class GameLibraryViewModel: ObservableObject {
@@ -14,18 +22,53 @@ final class GameLibraryViewModel: ObservableObject {
     @Published var showingImportGame = false
     @Published var showingSavesFor: Game?
     @Published var launchingGameId: UUID?
+    @Published var canStopGame = false
+    @Published var isStoppingGame = false
+    @Published var launchStatus: GameLaunchStatus?
+    @Published var steamMetadata: [UUID: SteamGameMetadata] = [:]
+    @Published var loadingSteamMetadata: Set<UUID> = []
 
     private let manager = LibraryManager()
-    private let launcher = GameLauncher()
+    private var requestedSteamMetadata: Set<UUID> = []
+    private var activeLaunchToken: UUID?
+    private var activeGameProcess: Process?
+    private var activeWinePrefix: URL?
 
     init() {
         loadAll()
+        if games.isEmpty, config.libraryPaths.contains(where: manager.isPathAccessible) {
+            scanAll()
+        }
     }
 
     /// 加载所有数据
     func loadAll() {
         games = manager.loadLibrary()
         config = manager.loadConfig()
+        requestedSteamMetadata = []
+        steamMetadata = [:]
+    }
+
+    func loadSteamMetadata(for game: Game) {
+        guard !requestedSteamMetadata.contains(game.id) else { return }
+        requestedSteamMetadata.insert(game.id)
+        loadingSteamMetadata.insert(game.id)
+        Task {
+            do {
+                let executableName = URL(fileURLWithPath: game.executable).deletingPathExtension().lastPathComponent
+                let metadata = try await SteamMetadataService.lookup(names: [
+                    game.name,
+                    game.path.deletingPathExtension().lastPathComponent,
+                    executableName
+                ])
+                if let metadata {
+                    steamMetadata[game.id] = metadata
+                }
+            } catch {
+                // Keep local library details available when Steam cannot be reached.
+            }
+            loadingSteamMetadata.remove(game.id)
+        }
     }
 
     /// 扫描所有库
@@ -123,23 +166,130 @@ final class GameLibraryViewModel: ObservableObject {
 
     /// 启动游戏
     func launch(_ game: Game) {
+        let launchToken = UUID()
+        activeLaunchToken = launchToken
         launchingGameId = game.id
-        do {
-            try launcher.launchAsync(game: game) { [weak self] elapsed in
-                guard let self else { return }
-                Task { @MainActor in
-                    self.launchingGameId = nil
-                    // 累加游玩时长
-                    if let index = self.games.firstIndex(where: { $0.id == game.id }) {
-                        self.games[index].playtime += elapsed
-                        self.games[index].lastPlayed = Date()
-                        try? self.manager.saveLibrary(self.games)
+        canStopGame = false
+        isStoppingGame = false
+        activeGameProcess = nil
+        activeWinePrefix = nil
+        launchStatus = GameLaunchStatus(
+            gameName: game.name,
+            message: GameLaunchStage.checkingEnvironment.message,
+            detail: game.engine.displayName,
+            symbol: GameLaunchStage.checkingEnvironment.symbol,
+            isInProgress: true
+        )
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                try GameLauncher().launchAsync(
+                    game: game,
+                    onProgress: { stage in
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, self.activeLaunchToken == launchToken else { return }
+                            self.launchStatus = GameLaunchStatus(
+                                gameName: game.name,
+                                message: stage.message,
+                                detail: game.engine.displayName,
+                                symbol: stage.symbol,
+                                isInProgress: true
+                            )
+                        }
+                    },
+                    onProcessStarted: { process, prefix in
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, self.activeLaunchToken == launchToken else { return }
+                            self.activeGameProcess = process
+                            self.activeWinePrefix = prefix
+                            self.canStopGame = true
+                        }
+                    },
+                    onExit: { [weak self] elapsed in
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, self.activeLaunchToken == launchToken else { return }
+                            let wasStoppedByUser = self.isStoppingGame
+                            self.launchingGameId = nil
+                            self.canStopGame = false
+                            self.isStoppingGame = false
+                            self.activeGameProcess = nil
+                            self.activeWinePrefix = nil
+                            self.launchStatus = GameLaunchStatus(
+                                gameName: game.name,
+                                message: wasStoppedByUser ? "游戏已停止" : "游戏已退出",
+                                detail: "本次游玩 \(Game.formatDuration(elapsed))",
+                                symbol: wasStoppedByUser ? "stop.circle.fill" : "checkmark.circle.fill",
+                                isInProgress: false
+                            )
+                            self.scheduleLaunchStatusClear(token: launchToken)
+
+                            // 累加时长
+                            if let index = self.games.firstIndex(where: { $0.id == game.id }) {
+                                self.games[index].playtime += elapsed
+                                self.games[index].lastPlayed = Date()
+                                try? self.manager.saveLibrary(self.games)
+                            }
+                        }
                     }
+                )
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.activeLaunchToken == launchToken else { return }
+                    self.launchingGameId = nil
+                    self.canStopGame = false
+                    self.isStoppingGame = false
+                    self.activeGameProcess = nil
+                    self.activeWinePrefix = nil
+                    self.launchStatus = GameLaunchStatus(
+                        gameName: game.name,
+                        message: "启动失败",
+                        detail: error.localizedDescription,
+                        symbol: "exclamationmark.triangle.fill",
+                        isInProgress: false
+                    )
+                    self.lastError = error.localizedDescription
+                    self.scheduleLaunchStatusClear(token: launchToken)
                 }
             }
-        } catch {
-            launchingGameId = nil
-            lastError = error.localizedDescription
+        }
+    }
+
+    /// 停止当前由 Gal4Mac 启动的游戏。
+    func stopGame() {
+        guard canStopGame,
+              !isStoppingGame,
+              let process = activeGameProcess,
+              let prefix = activeWinePrefix,
+              let launchToken = activeLaunchToken,
+              let game = games.first(where: { $0.id == launchingGameId }) else { return }
+
+        isStoppingGame = true
+        launchStatus = GameLaunchStatus(
+            gameName: game.name,
+            message: "正在停止游戏",
+            detail: game.engine.displayName,
+            symbol: "stop.fill",
+            isInProgress: true
+        )
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                try GameLauncher().stop(process: process, prefix: prefix)
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.activeLaunchToken == launchToken else { return }
+                    self.isStoppingGame = false
+                    self.lastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func scheduleLaunchStatusClear(token: UUID) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            guard let self, self.activeLaunchToken == token else { return }
+            self.launchStatus = nil
+            self.activeLaunchToken = nil
         }
     }
 
@@ -158,20 +308,6 @@ final class GameLibraryViewModel: ObservableObject {
         games.removeAll { $0.id == game.id }
         do {
             try manager.removeGame(id: game.id)
-        } catch {
-            lastError = error.localizedDescription
-        }
-    }
-
-    /// 更新游戏评分
-    func updateRating(for game: Game, rating: Int) {
-        guard let index = games.firstIndex(where: { $0.id == game.id }) else { return }
-        var updated = games[index]
-        updated.rating = rating > 0 ? rating : Game.defaultRating(for: game.engine)
-        updated.userRated = rating > 0
-        games[index] = updated
-        do {
-            try manager.saveLibrary(games)
         } catch {
             lastError = error.localizedDescription
         }

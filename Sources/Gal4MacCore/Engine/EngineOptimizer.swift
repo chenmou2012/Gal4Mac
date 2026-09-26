@@ -49,11 +49,13 @@ public struct EngineOptimizer {
             return siglusConfig()
         case .unity:
             return unityConfig()
+        case .realLive:
+            return realLiveConfig()
         case .tyranoScript:
             return tyranoConfig()
         case .renpy:
             return renpyConfig()
-        case .realLive, .nscripter:
+        case .nscripter:
             return oldEngineConfig()
         default:
             return WineConfig()
@@ -123,7 +125,8 @@ public struct EngineOptimizer {
                 // Unity 高分辨率支持
                 ("HKCU\\Software\\Wine\\Direct3D", "RenderTargetModeLockEnabled", "0"),
             ],
-            dllOverrides: [],
+            // Mythic 自带 DXVK；Unity 2018 的 D3D11 在 WineD3D 上会崩在 swapchain 创建。
+            dllOverrides: ["d3d11=n,b", "dxgi=n,b"],
             environmentVariables: [],
             dxBackend: .d3d11
         )
@@ -172,6 +175,34 @@ public struct EngineOptimizer {
             dxBackend: .gdi
         )
     }
+
+    /// CLANNAD/RealLive 的 DirectSound 音频配置。
+    /// CLANNAD 的 NWA 音轨为 44.1 kHz；匹配源采样率，避免 Wine 再做一次混音重采样。
+    private static func realLiveConfig() -> WineConfig {
+        WineConfig(
+            registryEntries: [
+                ("HKCU\\Software\\Wine\\DirectDraw", "Render", "GDI"),
+                ("HKCU\\Software\\Wine\\Direct3D", "DirectDrawRenderer", "gdi"),
+                ("HKCU\\Software\\Wine\\DirectSound", "HardwareAcceleration", "Emulation"),
+                ("HKCU\\Software\\Wine\\DirectSound", "DefaultSampleRate", "44100"),
+                ("HKCU\\Software\\Wine\\DirectSound", "DefaultBitsPerSample", "16"),
+                ("HKCU\\Software\\Wine\\DirectSound", "MaxShadowSize", "0"),
+                // 原版弹窗常用这些 Windows UI 字体；让中文错误提示也能从 macOS 字体中取字形。
+                ("HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes", "MS Gothic", "Hiragino Sans GB"),
+                ("HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes", "MS PGothic", "Hiragino Sans GB"),
+                ("HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes", "MS Sans Serif", "Hiragino Sans GB"),
+                ("HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes", "MS Shell Dlg", "Hiragino Sans GB"),
+                ("HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes", "MS Shell Dlg 2", "Hiragino Sans GB"),
+                ("HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes", "Tahoma", "Hiragino Sans GB"),
+            ],
+            dllOverrides: ["ddraw=g"],
+            environmentVariables: [
+                ("LANG", "zh_CN.UTF-8"),
+                ("LC_ALL", "zh_CN.UTF-8"),
+            ],
+            dxBackend: .gdi
+        )
+    }
 }
 
 /// 应用引擎优化到 Wine prefix
@@ -181,7 +212,11 @@ public final class EngineConfigurator {
 
     /// 应用所有引擎的优化到指定的 Wine prefix
     public func applyOptimizations(for engine: EngineType, prefix: URL) throws {
-        let config = EngineOptimizer.config(for: engine)
+        try applyOptimizations(config: EngineOptimizer.config(for: engine), prefix: prefix)
+    }
+
+    /// 应用游戏最终使用的配置，保留游戏专属的注册表覆盖。
+    public func applyOptimizations(config: EngineOptimizer.WineConfig, prefix: URL) throws {
         try applyRegistry(config.registryEntries, prefix: prefix)
         // DLL overrides 和 env vars 在 launch 时设置
     }

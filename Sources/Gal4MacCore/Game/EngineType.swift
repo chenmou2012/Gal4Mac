@@ -3,7 +3,7 @@ import Foundation
 /// Galgame 引擎类型
 ///
 /// 通过文件特征识别不同galgame引擎，每种引擎有不同的启动参数和兼容性处理
-public enum EngineType: String, Codable, CaseIterable {
+public enum EngineType: String, Codable, CaseIterable, Sendable {
     /// Unity (32-bit 或 64-bit Windows)
     case unity = "Unity"
 

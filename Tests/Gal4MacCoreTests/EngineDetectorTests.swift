@@ -16,7 +16,7 @@ final class EngineDetectorTests: XCTestCase {
         let url = try makeSiglusFixture()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let engine = detector.detect(at: url)
-        XCTAssertEqual(engine, .siglus, "CLANNAD 应该是 SiglusEngine")
+        XCTAssertEqual(engine, .siglus, "SiglusEngine 文件特征应识别为 SiglusEngine")
     }
 
     func testUnityExecutable() throws {
@@ -91,7 +91,7 @@ final class EngineDetectorTests: XCTestCase {
 
     private func makeSiglusFixture() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let game = root.appendingPathComponent("CLANNAD")
+        let game = root.appendingPathComponent("SiglusSample")
         try FileManager.default.createDirectory(at: game.appendingPathComponent("gan"), withIntermediateDirectories: true)
         try Data().write(to: game.appendingPathComponent("Gameexe.dat"))
         try Data().write(to: game.appendingPathComponent("Scene.pck"))

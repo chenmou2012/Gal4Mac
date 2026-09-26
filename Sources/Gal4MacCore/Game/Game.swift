@@ -1,6 +1,6 @@
 import Foundation
 
-public enum WineLocale: String, Codable, CaseIterable {
+public enum WineLocale: String, Codable, CaseIterable, Sendable {
     case automatic
     case simplifiedChinese
     case japanese
@@ -15,7 +15,7 @@ public enum WineLocale: String, Codable, CaseIterable {
 }
 
 /// Galgame 游戏信息
-public struct Game: Codable, Identifiable, Equatable {
+public struct Game: Codable, Identifiable, Equatable, Sendable {
     public let id: UUID
     public var name: String
     public var path: URL
@@ -25,8 +25,8 @@ public struct Game: Codable, Identifiable, Equatable {
     public var detectedAt: Date
     public var lastPlayed: Date?
     public var notes: String
-    public var rating: Int  // 1-5 星
-    public var userRated: Bool  // 用户是否自定义评分
+    public private(set) var rating: Int  // 根据引擎兼容性自动计算，1-5 星
+    public private(set) var userRated: Bool  // 兼容旧版库文件，始终为 false
     public var playtime: TimeInterval  // 累计游戏时长（秒）
     public var wineLocale: WineLocale
 
@@ -42,15 +42,11 @@ public struct Game: Codable, Identifiable, Equatable {
         self.detectedAt = (try? c.decode(Date.self, forKey: .detectedAt)) ?? Date()
         self.lastPlayed = try? c.decode(Date.self, forKey: .lastPlayed)
         self.notes = (try? c.decode(String.self, forKey: .notes)) ?? ""
-        self.userRated = (try? c.decode(Bool.self, forKey: .userRated)) ?? false
+        // Ignore legacy user-edited ratings and restore the system compatibility score.
+        self.userRated = false
         self.playtime = (try? c.decode(TimeInterval.self, forKey: .playtime)) ?? 0
         self.wineLocale = (try? c.decode(WineLocale.self, forKey: .wineLocale)) ?? .automatic
-        // rating 默认为引擎兼容性分数
-        if let r = try? c.decode(Int.self, forKey: .rating) {
-            self.rating = r
-        } else {
-            self.rating = Game.defaultRating(for: self.engine)
-        }
+        self.rating = Game.defaultRating(for: self.engine)
     }
 
     public init(
@@ -63,8 +59,6 @@ public struct Game: Codable, Identifiable, Equatable {
         detectedAt: Date = Date(),
         lastPlayed: Date? = nil,
         notes: String = "",
-        rating: Int? = nil,
-        userRated: Bool = false,
         playtime: TimeInterval = 0,
         wineLocale: WineLocale = .automatic
     ) {
@@ -77,11 +71,10 @@ public struct Game: Codable, Identifiable, Equatable {
         self.detectedAt = detectedAt
         self.lastPlayed = lastPlayed
         self.notes = notes
-        self.userRated = userRated
+        self.userRated = false
         self.playtime = playtime
         self.wineLocale = wineLocale
-        // 根据兼容性给默认评分
-        self.rating = rating ?? Game.defaultRating(for: engine)
+        self.rating = Game.defaultRating(for: engine)
     }
 
     /// 根据引擎兼容性给默认评分（1-5）

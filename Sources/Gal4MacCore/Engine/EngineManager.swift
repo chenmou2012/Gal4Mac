@@ -56,6 +56,12 @@ public final class EngineManager {
         engineDirectory.appendingPathComponent("winetricks")
     }
 
+    /// 用户本机提供的原生 DirectSound DLL；应用包不分发 Windows 组件。
+    public static var nativeDirectSoundDirectory: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("Gal4Mac/Audio/DirectSound", isDirectory: true)
+    }
+
     /// Mythic Container (Wine prefix) 根目录
     public static var containersDirectory: URL = {
         let appSupport = FileManager.default.urls(
@@ -78,6 +84,9 @@ public final class EngineManager {
         case wineBinaryMissing
         case propertiesCorrupted
         case versionTooOld(String)
+        case dxvkUnavailable
+        case wineServerStopFailed(Int32)
+        case invalidNativeDirectSound(String)
 
         public var errorDescription: String? {
             switch self {
@@ -89,6 +98,12 @@ public final class EngineManager {
                 return "Engine Properties.plist 已损坏"
             case .versionTooOld(let required):
                 return "Mythic Engine 版本过低，需要 \(required)"
+            case .dxvkUnavailable:
+                return "Unity 游戏需要 32 位 DXVK，但 Mythic Engine 中未找到所需文件"
+            case .wineServerStopFailed(let status):
+                return "停止 Wine 游戏失败（退出码 \(status)）"
+            case .invalidNativeDirectSound(let path):
+                return "原生 DirectSound DLL 架构不匹配：\(path)"
             }
         }
     }
@@ -215,6 +230,18 @@ public final class EngineManager {
         env["DXVK_ASYNC"] = "1"
         env["WINEDEBUG"] = "-all"  // 减少日志噪音
 
+        // Mythic bundles GStreamer with Wine but does not expose its plugin
+        // directory in the process environment. Unity's WindowsVideoMedia
+        // otherwise cannot find Wine's byte-stream handlers/codecs.
+        let gstreamerPlugins = wineLibDirectory.appendingPathComponent("gstreamer-1.0")
+        if FileManager.default.fileExists(atPath: gstreamerPlugins.path) {
+            env["GST_PLUGIN_PATH"] = gstreamerPlugins.path
+            env["GST_PLUGIN_PATH_1_0"] = gstreamerPlugins.path
+            env["GST_PLUGIN_SYSTEM_PATH"] = gstreamerPlugins.path
+            env["GST_PLUGIN_SYSTEM_PATH_1_0"] = gstreamerPlugins.path
+            env["GST_REGISTRY_FORK"] = "no"
+        }
+
         // 音频优化环境变量
         if let latency = audio.latencyMs {
             env["PULSE_LATENCY_MSEC"] = String(latency)
@@ -240,8 +267,54 @@ public final class EngineManager {
         return env
     }
 
-    /// 自动应用 DirectSound 优化到 Wine prefix
-    /// 这是解决杂音的真正有效方法（基于Mythic Engine + Wine 7.7测试）
+    /// 将本机提供的原生 DirectSound 安装到该游戏容器，保留首次替换前的 DLL。
+    /// 缺少对应架构的文件时，Wine 仍可回退到内置 DirectSound。
+    public static func installNativeDirectSound(prefix: URL) throws {
+        let fm = FileManager.default
+        let sources: [(name: String, destination: String, machine: UInt16)] = [
+            ("x86", "syswow64", 0x014c),
+            ("x64", "system32", 0x8664),
+        ]
+        for item in sources {
+            let source = nativeDirectSoundDirectory.appendingPathComponent(item.name).appendingPathComponent("dsound.dll")
+            guard fm.fileExists(atPath: source.path) else { continue }
+            let data = try Data(contentsOf: source)
+            guard peMachine(of: data) == item.machine else {
+                throw EngineError.invalidNativeDirectSound(source.path)
+            }
+
+            let destinationDirectory = prefix.appendingPathComponent("drive_c/windows/\(item.destination)", isDirectory: true)
+            if !fm.fileExists(atPath: destinationDirectory.path) {
+                try runWine(prefix: prefix, executable: "cmd", arguments: ["/c", "exit"])
+            }
+            let destination = destinationDirectory.appendingPathComponent("dsound.dll")
+            let previous = try? Data(contentsOf: destination)
+            guard previous != data else { continue }
+
+            if let previous {
+                let backupDirectory = nativeDirectSoundDirectory
+                    .appendingPathComponent("Backups", isDirectory: true)
+                    .appendingPathComponent(prefix.lastPathComponent, isDirectory: true)
+                try fm.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+                let backup = backupDirectory.appendingPathComponent("dsound-\(item.destination).dll")
+                if !fm.fileExists(atPath: backup.path) {
+                    try previous.write(to: backup, options: .atomic)
+                }
+            }
+            try data.write(to: destination, options: .atomic)
+        }
+    }
+
+    private static func peMachine(of data: Data) -> UInt16? {
+        guard data.count >= 0x40, data[0] == 0x4d, data[1] == 0x5a else { return nil }
+        let offset = Int(data[0x3c]) | Int(data[0x3d]) << 8 | Int(data[0x3e]) << 16 | Int(data[0x3f]) << 24
+        guard offset >= 0, offset + 6 <= data.count,
+              data[offset] == 0x50, data[offset + 1] == 0x45,
+              data[offset + 2] == 0, data[offset + 3] == 0 else { return nil }
+        return UInt16(data[offset + 4]) | UInt16(data[offset + 5]) << 8
+    }
+
+    /// 自动应用 DirectSound 优化到 Wine prefix。
     public static func applyAudioOptimizations(
         prefix: URL,
         engineConfig: EngineOptimizer.WineConfig? = nil
@@ -250,10 +323,16 @@ public final class EngineManager {
             return  // prefix还不存在，跳过
         }
 
+        let directSoundKey = "HKCU\\Software\\Wine\\DirectSound"
+        func configuredValue(_ name: String, fallback: String) -> String {
+            engineConfig?.registryEntries.first {
+                $0.0.caseInsensitiveCompare(directSoundKey) == .orderedSame && $0.1 == name
+            }?.2 ?? fallback
+        }
         let regCommands = [
-            ("HKCU\\Software\\Wine\\DirectSound", "HardwareAcceleration", "Emulation"),
-            ("HKCU\\Software\\Wine\\DirectSound", "DefaultSampleRate", "48000"),
-            ("HKCU\\Software\\Wine\\DirectSound", "DefaultBitsPerSample", "16")
+            (directSoundKey, "HardwareAcceleration", configuredValue("HardwareAcceleration", fallback: "Emulation")),
+            (directSoundKey, "DefaultSampleRate", configuredValue("DefaultSampleRate", fallback: "44100")),
+            (directSoundKey, "DefaultBitsPerSample", configuredValue("DefaultBitsPerSample", fallback: "16"))
         ]
 
         let processEnv = launchEnvironment(prefix: prefix, engineConfig: engineConfig)
@@ -265,6 +344,37 @@ public final class EngineManager {
             p.environment = processEnv
             try p.run()
             p.waitUntilExit()
+        }
+    }
+
+    /// 将 Mythic Engine 自带的 32 位 DXVK 安装到游戏 prefix。
+    /// 当前检测到的 Unity galgame 是 32 位进程，应使用 syswow64 中的 Direct3D DLL。
+    public static func installDXVK32Bit(prefix: URL) throws {
+        let fm = FileManager.default
+        let windowsDirectory = prefix.appendingPathComponent("drive_c/windows", isDirectory: true)
+        var syswow64IsDirectory: ObjCBool = false
+        let syswow64 = windowsDirectory.appendingPathComponent("syswow64", isDirectory: true)
+        let system32 = windowsDirectory.appendingPathComponent("system32", isDirectory: true)
+
+        if !fm.fileExists(atPath: syswow64.path, isDirectory: &syswow64IsDirectory) || !syswow64IsDirectory.boolValue {
+            // 新 prefix 先用 Wine 内置 cmd 初始化，之后再注入 DXVK。
+            try runWine(prefix: prefix, executable: "cmd", arguments: ["/c", "exit"])
+        }
+
+        var isDirectory: ObjCBool = false
+        let destination = fm.fileExists(atPath: syswow64.path, isDirectory: &isDirectory) && isDirectory.boolValue
+            ? syswow64
+            : system32
+        guard fm.fileExists(atPath: destination.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw EngineError.dxvkUnavailable
+        }
+
+        for name in ["d3d11.dll", "dxgi.dll"] {
+            let source = dxvkDirectory.appendingPathComponent("x32/\(name)")
+            guard let data = try? Data(contentsOf: source), !data.isEmpty else {
+                throw EngineError.dxvkUnavailable
+            }
+            try data.write(to: destination.appendingPathComponent(name), options: .atomic)
         }
     }
 
@@ -324,5 +434,31 @@ public final class EngineManager {
         let startTime = Date()
         try process.run()
         return (process, startTime)
+    }
+
+    /// 通过对应 Wine prefix 的 wineserver 结束游戏进程。
+    public static func stopWine(prefix: URL, process gameProcess: Process) throws {
+        let stopper = Process()
+        stopper.executableURL = wineServer
+        stopper.arguments = ["-k"]
+        stopper.environment = launchEnvironment(prefix: prefix)
+
+        do {
+            try stopper.run()
+            stopper.waitUntilExit()
+            guard stopper.terminationStatus == 0 else {
+                throw EngineError.wineServerStopFailed(stopper.terminationStatus)
+            }
+            if gameProcess.isRunning {
+                gameProcess.terminate()
+            }
+        } catch {
+            // wineserver -k 是首选的整组清理方式；如果它失败，至少结束由
+            // Gal4Mac 直接启动的 Wine 进程，并把错误交给界面显示。
+            if gameProcess.isRunning {
+                gameProcess.terminate()
+            }
+            throw error
+        }
     }
 }

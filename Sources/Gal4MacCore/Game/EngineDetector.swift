@@ -11,9 +11,24 @@ public struct EngineDetector {
     public func detect(at directory: URL) -> EngineType {
         let fm = FileManager.default
 
-        // 1. SiglusEngine 检测
-        if let siglus = detectSiglus(at: directory, fm: fm) {
-            return siglus
+        // Gal4Mac's CLANNAD profile is RealLive even though the Steam binary
+        // is named SiglusEngine_Steam.exe. Honor the known game mapping before
+        // the executable-name heuristic.
+        if directory.lastPathComponent.compare("CLANNAD", options: .caseInsensitive) == .orderedSame {
+            return .realLive
+        }
+
+        // 其余游戏优先依据引擎可执行文件判断。
+        if containsSiglusExecutable(at: directory, fm: fm) {
+            return .siglus
+        }
+        if containsRealLiveExecutable(at: directory, fm: fm) {
+            return .realLive
+        }
+
+        // 没有引擎可执行文件时，再使用资源目录结构识别 Siglus。
+        if hasSiglusDataLayout(at: directory, fm: fm) {
+            return .siglus
         }
 
         // 2. KiriKiri 检测
@@ -87,6 +102,11 @@ public struct EngineDetector {
             return primaryExes.first {
                 $0.lastPathComponent.lowercased().contains("siglus")
             }?.lastPathComponent ?? primaryExes.first?.lastPathComponent
+        case .realLive:
+            return primaryExes.first {
+                let name = $0.lastPathComponent.lowercased()
+                return name == "avgr.exe" || name.contains("reallive")
+            }?.lastPathComponent ?? primaryExes.first?.lastPathComponent
         case .kirikiri:
             return primaryExes.first { $0.lastPathComponent.lowercased() == "krkr.exe" }?.lastPathComponent
                 ?? primaryExes.first?.lastPathComponent
@@ -97,18 +117,27 @@ public struct EngineDetector {
 
     // MARK: - 具体引擎检测
 
-    private func detectSiglus(at dir: URL, fm: FileManager) -> EngineType? {
+    private func containsSiglusExecutable(at dir: URL, fm: FileManager) -> Bool {
+        executableFiles(at: dir, fm: fm).contains {
+            $0.lastPathComponent.lowercased().contains("siglusengine")
+        }
+    }
+
+    private func containsRealLiveExecutable(at dir: URL, fm: FileManager) -> Bool {
+        executableFiles(at: dir, fm: fm).contains {
+            let name = $0.lastPathComponent.lowercased()
+            return name == "avgr.exe" || name.contains("reallive")
+        }
+    }
+
+    private func hasSiglusDataLayout(at dir: URL, fm: FileManager) -> Bool {
         let hasGameExe = fileExists(named: "Gameexe.dat", at: dir, fm: fm) ||
                          fileExists(named: "GameexeZH.dat", at: dir, fm: fm)
         let hasScenePck = fileExists(named: "Scene.pck", at: dir, fm: fm) ||
                           fileExists(named: "SceneZH.pck", at: dir, fm: fm)
-        let hasSiglusExe = containsFile(matching: "SiglusEngine", at: dir, fm: fm)
         let hasGan = (try? fm.contentsOfDirectory(at: dir.appendingPathComponent("gan"), includingPropertiesForKeys: nil)) != nil
 
-        if hasSiglusExe || (hasGameExe && hasScenePck && hasGan) {
-            return .siglus
-        }
-        return nil
+        return hasGameExe && hasScenePck && hasGan
     }
 
     private func detectKiriKiri(at dir: URL, fm: FileManager) -> EngineType? {
@@ -173,9 +202,8 @@ public struct EngineDetector {
     }
 
     private func detectOther(at dir: URL, fm: FileManager) -> EngineType? {
-        // RealLive: AvgR.exe, RealLiveStdEn.exe
-        if containsFile(matching: "AvgR", at: dir, fm: fm) ||
-           containsFile(matching: "RealLive", at: dir, fm: fm) {
+        // RealLive was checked before broad resource-layout signatures.
+        if containsRealLiveExecutable(at: dir, fm: fm) {
             return .realLive
         }
 
@@ -200,6 +228,12 @@ public struct EngineDetector {
     }
 
     // MARK: - 辅助方法
+
+    private func executableFiles(at dir: URL, fm: FileManager) -> [URL] {
+        (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?.filter {
+            $0.pathExtension.lowercased() == "exe"
+        } ?? []
+    }
 
     private func fileExists(named name: String, at dir: URL, fm: FileManager, isDirectory: Bool? = nil) -> Bool {
         let url = dir.appendingPathComponent(name)

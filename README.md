@@ -34,6 +34,18 @@
 `Contents/Resources/Engine`。Wine 容器和存档仍保存在用户目录，更新应用不会覆盖。
 开发时直接运行 SwiftPM 可执行文件、或使用 CLI 时，则沿用本机的 Mythic Engine。
 
+## 音频默认配置
+
+启动器会为每个游戏的 Wine 容器设置 CoreAudio、DirectSound 原生优先（内置回退）、
+44.1 kHz / 16 位及软件仿真，并为吉里吉里游戏默认复用语音缓冲区。
+这些设置会在每次启动游戏时应用，已有游戏和之后导入的游戏使用同一套默认值。
+
+本机已验证的原生 `dsound.dll` 放在
+`~/Library/Application Support/Gal4Mac/Audio/DirectSound/x86/dsound.dll`。
+启动器会把它复制到每个 32 位游戏容器，替换前的文件保存在同目录的 `Backups` 下。
+若没有提供对应架构的原生 DLL，Wine 会回退到内置实现；64 位 DLL 可放在同级的
+`x64/dsound.dll`。仓库和应用包不包含 Windows DLL。
+
 打包机需要先安装 Mythic Engine（默认位于
 `~/Library/Application Support/Mythic/Engine`）。如在其他目录，可设置
 `MYTHIC_ENGINE_SOURCE`。引擎包含 [Wine](https://www.winehq.org/) 及
