@@ -17,65 +17,73 @@ struct SaveManagerSheet: View {
     private let saveManager = SaveManager()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("存档管理")
-                    .font(.title2.bold())
-                Spacer()
-                Text(game.name)
-                    .foregroundStyle(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 20) {
+            GalSheetHeader(
+                title: "存档管理",
+                subtitle: "\(game.name) · 检查本地存档，并安全导入或导出 ZIP。",
+                symbol: "archivebox"
+            )
 
-            Text("自动检测存档位置。导入/导出为 zip 文件。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if isLoading {
-                ProgressView("扫描存档...")
-            } else if saveLocations.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "tray")
-                        .font(.system(size: 36))
-                        .foregroundStyle(.tertiary)
-                    Text("未找到存档")
-                        .foregroundStyle(.secondary)
-                    Button("重新扫描") {
-                        loadSaves()
+            Group {
+                if isLoading {
+                    ProgressView("正在扫描存档位置…")
+                        .frame(maxWidth: .infinity, minHeight: 150)
+                } else if saveLocations.isEmpty {
+                    ContentUnavailableView {
+                        Label("未找到存档", systemImage: "tray")
+                    } description: {
+                        Text("可以重新扫描，或从 Steam 云端下载存档。")
+                    } actions: {
+                        Button("重新扫描", action: loadSaves)
                     }
-                }
-                .frame(maxWidth: .infinity, minHeight: 120)
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(saveLocations, id: \.path) { loc in
-                        SaveLocationRow(location: loc) {
-                            exportSaves(from: loc)
+                    .frame(maxWidth: .infinity, minHeight: 170)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 9) {
+                            ForEach(saveLocations, id: \.path) { loc in
+                                SaveLocationRow(location: loc) {
+                                    exportSaves(from: loc)
+                                }
+                            }
                         }
+                        .padding(12)
                     }
+                    .frame(minHeight: 150, maxHeight: 260)
                 }
             }
+            .galSheetCard()
 
-            if let message = message {
-                Text(message)
+            if let message {
+                Label(
+                    message,
+                    systemImage: (message.hasPrefix("✗") || message.contains("未找到") || message.contains("无法"))
+                        ? "exclamationmark.triangle"
+                        : "checkmark.circle"
+                )
                     .font(.callout)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle((message.hasPrefix("✗") || message.contains("未找到") || message.contains("无法")) ? .orange : .secondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
             }
-
-            Divider()
 
             HStack {
                 Button("导入存档…") {
                     importSaves()
                 }
+                .buttonStyle(.bordered)
                 Button("从 Steam 云端下载…") {
                     showingSteamCloud = true
                 }
+                .buttonStyle(.bordered)
                 Spacer()
-                Button("关闭") { dismiss() }
+                Button("完成") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .buttonStyle(.borderedProminent)
             }
         }
-        .padding(20)
-        .frame(width: 540, height: 360)
+        .padding(24)
+        .frame(width: 600)
+        .frame(minHeight: 370, alignment: .topLeading)
         .onAppear {
             loadSaves()
         }
@@ -178,9 +186,8 @@ struct SaveLocationRow: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
         }
-        .padding(10)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(11)
+        .galSheetCard(cornerRadius: 11)
     }
 
     private func formatSize(_ bytes: Int64) -> String {

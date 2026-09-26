@@ -18,33 +18,35 @@ struct DownloadSheet: View {
     private let aria2Installed = Aria2Downloader.isInstalled()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("下载游戏")
-                    .font(.title2.bold())
-                Spacer()
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .top, spacing: 12) {
+                GalSheetHeader(
+                    title: "下载游戏",
+                    subtitle: "输入游戏压缩包链接。下载完成后会自动解压并添加到游戏库。",
+                    symbol: "arrow.down.circle"
+                )
+                Spacer(minLength: 0)
                 if !aria2Installed {
                     Label("aria2 未安装", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                         .font(.caption)
+                        .fixedSize()
                 } else {
                     Label("aria2 就绪", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .font(.caption)
+                        .fixedSize()
                 }
             }
 
-            Text("输入下载链接（HTTP/HTTPS/磁力链），aria2 多线程下载完成后自动解压。")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
             VStack(alignment: .leading, spacing: 4) {
                 Text("下载链接")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.subheadline.weight(.semibold))
                 TextField("https://example.com/game.zip", text: $urlString)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
                     .disabled(isDownloading)
+                    .padding(12)
+                    .galSheetCard()
             }
 
             // 进度显示
@@ -61,9 +63,8 @@ struct DownloadSheet: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .padding(12)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(13)
+                .galSheetCard()
             }
 
             if !aria2Installed {
@@ -74,13 +75,12 @@ struct DownloadSheet: View {
                         .font(.caption.bold())
                     Text("brew install aria2")
                         .font(.system(.caption, design: .monospaced))
-                        .padding(6)
-                        .background(Color.black.opacity(0.3))
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .galSheetCard(cornerRadius: 7)
                 }
-                .padding(10)
-                .background(Color.orange.opacity(0.15))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(12)
+                .galSheetCard()
             }
 
             Spacer()
@@ -105,8 +105,9 @@ struct DownloadSheet: View {
                 .disabled(urlString.isEmpty || isDownloading || !aria2Installed)
             }
         }
-        .padding(20)
-        .frame(width: 580, height: 380)
+        .padding(24)
+        .frame(width: 600)
+        .frame(minHeight: 380, alignment: .topLeading)
     }
 
     private func startDownload() {

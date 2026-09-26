@@ -20,64 +20,83 @@ struct SteamCloudSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("从 Steam 云端下载存档")
-                    .font(.title2.bold())
-                Spacer()
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                GalSheetHeader(
+                    title: "Steam 云存档",
+                    subtitle: "登录 Steam 官方页面，下载后确认文件名和存档位置。",
+                    symbol: "icloud.and.arrow.down"
+                )
+                Spacer(minLength: 0)
                 Button("关闭") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
             }
 
-            Text("在下方 Steam 官方页面登录，找到游戏并点击“下载”。下载的文件会出现在这里，确认名称和导入位置后即可导入。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
-            HStack {
-                TextField("Steam AppID（例如 888790）", text: $steamAppID)
+            HStack(spacing: 10) {
+                TextField("Steam AppID", text: $steamAppID, prompt: Text("例如 888790"))
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 250)
-                Button("打开该游戏的云存档") {
+                    .frame(width: 190)
+                Button("打开云存档") {
                     pageURL = URL(string: "https://store.steampowered.com/account/remotestorageapp/?appid=\(steamAppID)")!
                 }
+                .buttonStyle(.borderedProminent)
                 .disabled(steamAppID.isEmpty || !steamAppID.allSatisfy(\.isNumber))
-                Button("查找客户端已同步文件") { scanClientSaves() }
+                Button("查找已同步文件", action: scanClientSaves)
                     .disabled(steamAppID.isEmpty || !steamAppID.allSatisfy(\.isNumber))
             }
+            .padding(12)
+            .galSheetCard()
 
-            HStack {
-                Text("导入到：")
-                Text(targetDirectory?.path ?? "尚未选择游戏存档目录")
-                    .font(.system(.caption, design: .monospaced))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Button("选择目录…", action: chooseTargetDirectory)
+            HStack(spacing: 10) {
+                Image(systemName: "folder")
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("存档目标文件夹")
+                        .font(.caption.weight(.semibold))
+                    Text(targetDirectory?.path ?? "尚未选择游戏存档目录")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Button("选择…", action: chooseTargetDirectory)
             }
+            .padding(11)
+            .galSheetCard()
 
             if !downloads.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("待导入的文件")
-                        .font(.headline)
+                    Label("待导入文件（\(downloads.count)）", systemImage: "tray.and.arrow.down")
+                        .font(.subheadline.weight(.semibold))
                     ForEach($downloads) { $download in
-                        HStack {
-                            Text(download.sourceLabel)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            TextField("导入后的文件名", text: $download.filename)
-                                .textFieldStyle(.roundedBorder)
+                        HStack(spacing: 9) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(download.sourceLabel)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                TextField("导入后的文件名", text: $download.filename)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                            Spacer(minLength: 0)
                             Button("导入") { importDownload(download) }
+                                .buttonStyle(.borderedProminent)
                                 .disabled(targetDirectory == nil || isImporting)
                         }
+                        .padding(.vertical, 5)
                     }
                 }
-                .padding(10)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(12)
+                .galSheetCard()
             }
 
             if let message {
-                Text(message)
+                Label(message, systemImage: message.contains("失败") ? "exclamationmark.triangle" : "checkmark.circle")
                     .font(.callout)
+                    .foregroundStyle(message.contains("失败") ? .orange : .secondary)
+                    .lineLimit(2)
             }
 
             SteamRemoteStorageWebView(
@@ -89,10 +108,14 @@ struct SteamCloudSheet: View {
                 onError: { error in message = "下载失败：\(error)" }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            }
         }
-        .padding(16)
-        .frame(width: 920, height: 720)
+        .padding(20)
+        .frame(width: 940, height: 760)
         .onDisappear {
             for download in downloads where download.removeAfterImport {
                 try? FileManager.default.removeItem(at: download.url)

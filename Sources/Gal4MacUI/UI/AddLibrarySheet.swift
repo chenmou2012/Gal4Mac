@@ -9,37 +9,41 @@ struct AddLibrarySheet: View {
     @State private var path: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("添加库路径")
-                .font(.title2.bold())
+        VStack(alignment: .leading, spacing: 22) {
+            GalSheetHeader(
+                title: "添加游戏库",
+                subtitle: "选择包含游戏的文件夹。支持本地磁盘、外接硬盘和网络盘。",
+                symbol: "folder.badge.plus"
+            )
 
-            Text("选择包含游戏的根目录\n可以是本地磁盘、外接硬盘或网络盘。")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                TextField("路径", text: $path)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { addLibrary() }
-                Button("选择…") {
-                    selectFolder()
+            VStack(alignment: .leading, spacing: 9) {
+                Text("文件夹位置")
+                    .font(.subheadline.weight(.semibold))
+                HStack(spacing: 10) {
+                    Image(systemName: "folder")
+                        .foregroundStyle(.secondary)
+                    TextField("输入路径或选择文件夹", text: $path)
+                        .textFieldStyle(.plain)
+                        .onSubmit { addLibrary() }
+                    Button("选择…", action: selectFolder)
                 }
+                .padding(12)
+                .galSheetCard()
             }
-
-            Spacer()
 
             HStack {
                 Button("取消") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("添加") { addLibrary() }
+                Button("添加游戏库", action: addLibrary)
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
-                    .disabled(path.isEmpty)
+                    .disabled(path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(20)
-        .frame(width: 480)
+        .padding(24)
+        .frame(width: 500)
+        .frame(minHeight: 240, alignment: .topLeading)
     }
 
     private func selectFolder() {
@@ -62,9 +66,8 @@ struct AddLibrarySheet: View {
 }
 
 /// 设置弹窗
-struct SettingsSheet: View {
+struct SettingsView: View {
     @EnvironmentObject var library: GameLibraryViewModel
-    @Environment(\.dismiss) var dismiss
     @State private var selectedImportGameID: UUID?
     @State private var transferStatus: String?
     @State private var pendingImports: [PendingSaveImport] = []
@@ -78,130 +81,140 @@ struct SettingsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("设置")
-                .font(.title2.bold())
+            GalSheetHeader(
+                title: "设置",
+                subtitle: "管理运行环境、存档备份和游戏库位置。",
+                symbol: "gearshape"
+            )
 
-            // Engine 状态
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Mythic Engine", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                if let version = EngineManager.currentVersion() {
-                    Text("版本: \(version.string)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Text("路径: \(EngineManager.engineDirectory.path)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-            }
-            .padding()
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            // 一键存档备份与恢复
-            VStack(alignment: .leading, spacing: 10) {
-                Text("存档")
-                    .font(.headline)
-                HStack {
-                    Button("一键导出全部存档…", action: exportAllSaves)
-                        .disabled(library.games.isEmpty)
-                    Button("导入存档包…", action: importSaveArchives)
-                        .disabled(library.games.isEmpty)
-                    Spacer(minLength: 0)
-                }
-                HStack(spacing: 8) {
-                    Text("无法从文件名识别游戏时，导入到")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker("目标游戏", selection: $selectedImportGameID) {
-                        Text("选择游戏").tag(UUID?.none)
-                        ForEach(library.games) { game in
-                            Text(game.name).tag(Optional(game.id))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Engine 状态
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Mythic Engine", systemImage: "checkmark.circle.fill")
+                            .font(.headline)
+                            .foregroundStyle(.green)
+                        if let version = EngineManager.currentVersion() {
+                            Text("版本: \(version.string)")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
                         }
+                        Text("路径: \(EngineManager.engineDirectory.path)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
                     }
-                    .labelsHidden()
-                    .frame(maxWidth: 190)
-                }
-                if let transferStatus {
-                    Text(transferStatus)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(3)
-                }
-            }
-            .padding()
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(14)
+                    .galSheetCard()
 
-            // 库路径列表
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("库路径 (\(library.config.libraryPaths.count))")
-                        .font(.headline)
-                    Spacer()
-                    Button {
-                        library.showingAddLibrary = true
-                    } label: {
-                        Label("添加", systemImage: "plus")
-                    }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                }
-
-                if library.config.libraryPaths.isEmpty {
-                    Text("未配置库路径")
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
-                } else {
-                    List {
-                        ForEach(library.config.libraryPaths, id: \.self) { path in
-                            HStack {
-                                Image(systemName: library.isAccessible(path) ? "external.drive.connected.to.line.below" : "external.drive.badge.exclamationmark")
-                                    .foregroundStyle(library.isAccessible(path) ? .green : .orange)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(path.lastPathComponent)
-                                    Text(path.path)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
+                    // 一键存档备份与恢复
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("存档备份", systemImage: "archivebox")
+                            .font(.headline)
+                        HStack {
+                            Button("导出全部…", action: exportAllSaves)
+                                .disabled(library.games.isEmpty)
+                            Button("导入存档包…", action: importSaveArchives)
+                                .disabled(library.games.isEmpty)
+                            Spacer(minLength: 0)
+                        }
+                        HStack(spacing: 8) {
+                            Text("无法从文件名识别时，导入到")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Picker("目标游戏", selection: $selectedImportGameID) {
+                                Text("选择游戏").tag(UUID?.none)
+                                ForEach(library.games) { game in
+                                    Text(game.name).tag(Optional(game.id))
                                 }
-                                Spacer()
-                                if !library.isAccessible(path) {
-                                    Text("不可访问")
-                                        .font(.caption2)
-                                        .foregroundStyle(.orange)
-                                }
-                                Button {
-                                    library.removeLibrary(path)
-                                } label: {
-                                    Image(systemName: "minus.circle")
-                                }
-                                .buttonStyle(.borderless)
-                                .foregroundStyle(.red)
                             }
-                            .padding(.vertical, 4)
+                            .labelsHidden()
+                            .frame(maxWidth: 210)
+                        }
+                        if let transferStatus {
+                            Label(
+                                transferStatus,
+                                systemImage: transferStatus.hasPrefix("正在")
+                                    ? "arrow.triangle.2.circlepath"
+                                    : (transferStatus.contains("失败") || transferStatus.contains("跳过") ? "exclamationmark.triangle" : "checkmark.circle")
+                            )
+                                .font(.caption)
+                                .foregroundStyle(transferStatus.contains("失败") ? .orange : .secondary)
+                                .textSelection(.enabled)
+                                .lineLimit(3)
                         }
                     }
-                    .listStyle(.bordered)
-                    .frame(minHeight: 160)
+                    .padding(14)
+                    .galSheetCard()
+
+                    // 库路径列表
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Label("游戏库路径", systemImage: "externaldrive")
+                                .font(.headline)
+                            Spacer()
+                            Button {
+                                library.showingAddLibrary = true
+                            } label: {
+                                Label("添加", systemImage: "plus")
+                            }
+                            .buttonStyle(.borderless)
+                            .controlSize(.small)
+                        }
+
+                        if library.config.libraryPaths.isEmpty {
+                            ContentUnavailableView("未配置游戏库", systemImage: "externaldrive", description: Text("添加一个包含游戏的文件夹开始使用。"))
+                                .frame(minHeight: 110)
+                        } else {
+                            List {
+                                ForEach(library.config.libraryPaths, id: \.self) { path in
+                                    HStack(spacing: 10) {
+                                        Image(systemName: library.isAccessible(path) ? "externaldrive.connected.to.line.below" : "externaldrive.badge.exclamationmark")
+                                            .foregroundStyle(library.isAccessible(path) ? .green : .orange)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(path.lastPathComponent)
+                                                .font(.callout.weight(.medium))
+                                            Text(path.path)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                        }
+                                        Spacer()
+                                        if !library.isAccessible(path) {
+                                            Text("不可访问")
+                                                .font(.caption)
+                                                .foregroundStyle(.orange)
+                                        }
+                                        Button {
+                                            library.removeLibrary(path)
+                                        } label: {
+                                            Image(systemName: "minus.circle")
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .foregroundStyle(.red)
+                                        .help("移除游戏库路径")
+                                    }
+                                    .padding(.vertical, 3)
+                                    .listRowSeparator(.hidden)
+                                }
+                            }
+                            .listStyle(.inset)
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 100, maxHeight: 220)
+                        }
+                    }
+                    .padding(14)
+                    .galSheetCard()
                 }
+                .padding(.vertical, 2)
             }
 
-            Spacer()
-
-            HStack {
-                Spacer()
-                Button("完成") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-            }
         }
-        .padding(20)
-        .frame(width: 600, height: 620)
+        .padding(24)
+        .frame(maxWidth: 760, maxHeight: .infinity, alignment: .topLeading)
         .sheet(item: $activeImport, onDismiss: showNextImport) { item in
             SaveImportReviewSheet(game: item.game, initialPreview: item.preview) { result in
                 transferStatus = "已导入 \(item.game.name) 的 \(result.fileCount) 个文件"
