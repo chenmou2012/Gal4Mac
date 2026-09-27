@@ -2,6 +2,60 @@ import XCTest
 @testable import Gal4MacCore
 
 final class LibraryManagerTests: XCTestCase {
+    func testReimportKeepsSelectedWineLocale() throws {
+        let storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: storage) }
+        let gameDirectory = storage.appendingPathComponent("Example")
+        try FileManager.default.createDirectory(at: gameDirectory, withIntermediateDirectories: true)
+        try Data().write(to: gameDirectory.appendingPathComponent("Example.exe"))
+        let manager = LibraryManager(storageDirectory: storage)
+        let saved = Game(name: "Example", path: gameDirectory, executable: "Example.exe",
+                         engine: .unity, wineLocale: .japanese)
+        try manager.saveLibrary([saved])
+        XCTAssertEqual(manager.loadLibrary().first?.wineLocale, .japanese)
+
+        XCTAssertEqual(manager.loadLibrary().first?.path.standardizedFileURL.pathComponents,
+                       gameDirectory.standardizedFileURL.pathComponents)
+
+        let imported = try manager.addGame(at: gameDirectory, engine: .unity, executable: "Example.exe")
+
+        XCTAssertEqual(imported?.wineLocale, .japanese)
+        XCTAssertEqual(manager.loadLibrary().first?.wineLocale, .japanese)
+        XCTAssertEqual(manager.loadLibrary().count, 1)
+    }
+
+    func testImportPersistsConfirmedSteamIdentityAndDisplayName() throws {
+        let storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: storage) }
+        let gameDirectory = storage.appendingPathComponent("game-files")
+        try FileManager.default.createDirectory(at: gameDirectory, withIntermediateDirectories: true)
+        try Data().write(to: gameDirectory.appendingPathComponent("Start.exe"))
+        let manager = LibraryManager(storageDirectory: storage)
+
+        let imported = try XCTUnwrap(manager.addGame(
+            at: gameDirectory,
+            engine: .unknown,
+            executable: "Start.exe",
+            displayName: "CLANNAD",
+            wineLocale: .japanese,
+            steamAppID: 324160
+        ))
+
+        XCTAssertEqual(imported.name, "CLANNAD")
+        XCTAssertEqual(imported.steamAppID, 324160)
+        XCTAssertEqual(manager.loadLibrary().first?.steamAppID, 324160)
+        XCTAssertEqual(manager.loadLibrary().first?.wineLocale, .japanese)
+
+        _ = try manager.addGame(
+            at: gameDirectory,
+            engine: .unknown,
+            executable: "Start.exe",
+            displayName: "自定义名称",
+            clearSteamMatch: true
+        )
+        XCTAssertNil(manager.loadLibrary().first?.steamAppID)
+    }
+
     func testUnavailableLibraryPreservesSavedGames() throws {
         let storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: storage) }

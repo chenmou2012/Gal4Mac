@@ -245,7 +245,15 @@ public final class LibraryManager {
 
     /// 手动添加单个游戏
     @discardableResult
-    public func addGame(at path: URL, engine selectedEngine: EngineType? = nil, executable selectedExecutable: String? = nil) throws -> Game? {
+    public func addGame(
+        at path: URL,
+        engine selectedEngine: EngineType? = nil,
+        executable selectedExecutable: String? = nil,
+        displayName: String? = nil,
+        wineLocale: WineLocale? = nil,
+        steamAppID: Int? = nil,
+        clearSteamMatch: Bool = false
+    ) throws -> Game? {
         let engine = selectedEngine ?? detector.detect(at: path)
         guard let executable = selectedExecutable ?? detector.findExecutable(at: path, engine: engine) else {
             return nil
@@ -255,11 +263,14 @@ public final class LibraryManager {
             throw LibraryError.invalidExecutable
         }
 
-        let existing = loadLibrary().first { $0.path.standardizedFileURL == path.standardizedFileURL }
+        let existing = loadLibrary().first {
+            $0.path.standardizedFileURL.pathComponents == path.standardizedFileURL.pathComponents
+        }
+        let chosenName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let game = Game(
             id: existing?.id ?? UUID(),
-            name: existing?.name ?? path.lastPathComponent,
+            name: chosenName.flatMap { $0.isEmpty ? nil : $0 } ?? existing?.name ?? path.lastPathComponent,
             path: path,
             executable: executable,
             engine: engine,
@@ -267,11 +278,15 @@ public final class LibraryManager {
             detectedAt: existing?.detectedAt ?? Date(),
             lastPlayed: existing?.lastPlayed,
             notes: existing?.notes ?? "",
-            playtime: existing?.playtime ?? 0
+            playtime: existing?.playtime ?? 0,
+            wineLocale: wineLocale ?? existing?.wineLocale ?? .automatic,
+            steamAppID: clearSteamMatch ? nil : (steamAppID ?? existing?.steamAppID)
         )
 
         var library = loadLibrary()
-        library.removeAll { $0.path == game.path }
+        library.removeAll {
+            $0.path.standardizedFileURL.pathComponents == game.path.standardizedFileURL.pathComponents
+        }
         library.append(game)
         try saveLibrary(library)
 

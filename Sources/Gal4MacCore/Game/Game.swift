@@ -29,6 +29,8 @@ public struct Game: Codable, Identifiable, Equatable, Sendable {
     public private(set) var userRated: Bool  // 兼容旧版库文件，始终为 false
     public var playtime: TimeInterval  // 累计游戏时长（秒）
     public var wineLocale: WineLocale
+    /// 用户确认的 Steam 游戏身份；nil 表示自定义游戏。
+    public var steamAppID: Int?
 
     // 自定义解码，提供向后兼容（旧 JSON 没有新字段时使用默认值）
     public init(from decoder: Decoder) throws {
@@ -46,6 +48,7 @@ public struct Game: Codable, Identifiable, Equatable, Sendable {
         self.userRated = false
         self.playtime = (try? c.decode(TimeInterval.self, forKey: .playtime)) ?? 0
         self.wineLocale = (try? c.decode(WineLocale.self, forKey: .wineLocale)) ?? .automatic
+        self.steamAppID = try? c.decode(Int.self, forKey: .steamAppID)
         self.rating = Game.defaultRating(for: self.engine)
     }
 
@@ -60,7 +63,8 @@ public struct Game: Codable, Identifiable, Equatable, Sendable {
         lastPlayed: Date? = nil,
         notes: String = "",
         playtime: TimeInterval = 0,
-        wineLocale: WineLocale = .automatic
+        wineLocale: WineLocale = .automatic,
+        steamAppID: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -74,6 +78,7 @@ public struct Game: Codable, Identifiable, Equatable, Sendable {
         self.userRated = false
         self.playtime = playtime
         self.wineLocale = wineLocale
+        self.steamAppID = steamAppID
         self.rating = Game.defaultRating(for: engine)
     }
 

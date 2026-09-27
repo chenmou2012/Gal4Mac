@@ -18,17 +18,21 @@
 
 | 层次 | 技术 | 理由 |
 |------|------|------|
-| 前端 UI | SwiftUI | macOS 原生最佳体验 |
+| 用户入口 | SwiftUI + Swift CLI | 原生桌面交互，同时保留脚本入口 |
 | 应用层 | Swift | 与系统深度集成 (Metal, Game Mode) |
 | 转译层 | Apple GPTK | Apple 官方 + 底层开源 Wine |
 | 资源管理 | SwiftData | 现代持久化方案 |
 | 自动更新 | Sparkle | macOS 标配 |
 
+## 当前交付形态
+
+当前仓库包含 `Gal4MacUI`、CLI 与 `Gal4MacCore`。SwiftUI 界面提供本地游戏库、游戏详情、文件夹导入、累计游玩统计和基础设置；运行时共用核心库与本机 Mythic Engine。
+
 ## 为什么 fork Mythic
 
 **Mythic 是当前最佳基础**：
 - ✅ GPL-3.0 开源
-- ✅ Swift/SwiftUI 原生
+- ✅ Swift 原生实现
 - ✅ 基于 GPTK 自定义实现
 - ✅ 活跃维护（1.4k stars）
 - ✅ 已分离 Engine 子仓库
@@ -60,8 +64,8 @@
 - [ ] 配置文件 schema 化（每个引擎独立配置）
 - [ ] 字体注入机制（中易宋体等）
 
-### Phase 3：产品化（2-3 月）
-- [ ] 游戏库 UI（SwiftUI Grid + Cover Flow）
+### 后续产品化（待规划）
+- [x] 游戏库图形界面（基础版）
 - [ ] 自动获取封面、简介（CJK 元数据）
 - [ ] 存档管理（云存档可选）
 - [ ] 性能监控 + 日志收集

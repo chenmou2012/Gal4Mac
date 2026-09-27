@@ -30,9 +30,7 @@
 
 ## 引擎
 
-图形版 `Gal4Mac.app` 可内置 Mythic Engine，运行时优先使用应用包中的
-`Contents/Resources/Engine`。Wine 容器和存档仍保存在用户目录，更新应用不会覆盖。
-开发时直接运行 SwiftPM 可执行文件、或使用 CLI 时，则沿用本机的 Mythic Engine。
+项目提供 SwiftUI 图形界面和命令行界面（CLI）。两者共用本机安装的 Mythic Engine 与游戏库数据；Wine 容器和存档保存在用户目录。
 
 ## 音频默认配置
 
@@ -46,11 +44,8 @@
 若没有提供对应架构的原生 DLL，Wine 会回退到内置实现；64 位 DLL 可放在同级的
 `x64/dsound.dll`。仓库和应用包不包含 Windows DLL。
 
-打包机需要先安装 Mythic Engine（默认位于
-`~/Library/Application Support/Mythic/Engine`）。如在其他目录，可设置
-`MYTHIC_ENGINE_SOURCE`。引擎包含 [Wine](https://www.winehq.org/) 及
-[Apple Game Porting Toolkit](https://developer.apple.com/gamesportingtoolkit/) 组件；
-打包脚本从本机复制引擎，仓库不存放引擎二进制。
+首次使用前需要安装 Mythic 并下载 Engine。引擎包含 [Wine](https://www.winehq.org/) 及
+[Apple Game Porting Toolkit](https://developer.apple.com/gamesportingtoolkit/) 组件；仓库不存放引擎二进制。
 
 ## 安装
 
@@ -63,22 +58,21 @@ brew install --cask mythic
 # 2. 首次启动 Mythic 让其下载 Engine (~850MB)
 open /Applications/Mythic.app
 
-# 3. 在仓库目录编译 CLI
+# 3. 在仓库目录编译
 swift build -c release
 
-# 4. 运行 CLI
+# 4. 启动图形界面
+swift run Gal4MacApp
+
+# 5. 或运行 CLI
 ./.build/release/gal4mac list
 ./.build/release/gal4mac launch Aokana
 
-# 5. 打包内置 Engine 的图形应用
-./Scripts/package_app.sh
-open ./dist/Gal4Mac.app
 ```
 
-打包结果位于 `dist/Gal4Mac.app`，使用本机临时签名，可直接在本机测试。
-对外发布需使用发布者的 Developer ID 签名并完成 Apple 公证。
-
 ## 使用示例
+
+图形界面右上角的 `+` 打开四步导入：选择本地文件夹或压缩包（也可填 HTTP/HTTPS 直链）、解压、确认游戏身份与运行配置、完成导入。在线下载需要 `aria2`；加密压缩包需要 `unar`。第三步会搜索 Steam 游戏，可以接受自动匹配、手动搜索选择，或设为自定义游戏。旧游戏也可在详情页匹配 Steam。已关联的游戏显示 Steam 介绍和背景，并提供存档同步入口：点击后先检查登录状态，未登录则在设置页的 Steam 网页登录；登录信息由 WebKit 的持久化网站数据保存。同步弹窗会先展示导入位置，用户确认“下载并导入”后才开始下载；同名本地文件会先备份。
 
 ```bash
 # 扫描游戏库
@@ -104,8 +98,7 @@ gal4mac launch /path/to/game --engine kirikiri
   - [x] 引擎检测
   - [x] 一键启动
   - [ ] CJK 字体注入
-- [ ] **Phase 3 (UI)**：SwiftUI 图形界面
-- [ ] **Phase 4 (产品)**：游戏库、自动补丁
+- [x] SwiftUI 图形界面：游戏库、详情、导入、统计与基础设置
 
 ## 架构
 
@@ -113,7 +106,8 @@ gal4mac launch /path/to/game --engine kirikiri
 
 ```
 Gal4Mac/
-├── Sources/Gal4Mac/      # CLI 入口
+├── Sources/Gal4MacCLI/   # CLI 入口
+├── Sources/Gal4MacUI/    # SwiftUI 图形界面
 ├── Sources/Gal4MacCore/  # 核心逻辑
 │   ├── Engine/           # Mythic Engine 封装
 │   ├── Game/             # 游戏模型 + 检测 + 启动

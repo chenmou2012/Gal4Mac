@@ -62,7 +62,7 @@ public final class ArchiveExtractor {
     ///   - archiveURL: 压缩包路径
     ///   - destination: 解压目标目录（不存在则创建）
     /// - Returns: 解压出的游戏目录路径
-    public func extract(archiveURL: URL, to destination: URL) throws -> URL {
+    public func extract(archiveURL: URL, to destination: URL, password: String? = nil) throws -> URL {
         let format = detectFormat(at: archiveURL)
         guard format != .unknown else {
             throw ExtractError.unsupportedFormat(archiveURL.pathExtension)
@@ -77,16 +77,27 @@ public final class ArchiveExtractor {
             withIntermediateDirectories: true
         )
 
-        // 选择解压工具
-        switch format {
-        case .zip:
-            try extractZip(archive: firstVolume, to: destination)
-        case .rar:
-            try extractRar(archive: firstVolume, to: destination)
-        case .sevenZip:
-            try extract7z(archive: firstVolume, to: destination)
-        case .unknown:
-            throw ExtractError.unsupportedFormat(archiveURL.pathExtension)
+        // 有密码时统一使用 unar，系统 ditto 无法处理受保护的 ZIP。
+        if let password, !password.isEmpty {
+            guard let tool = ["/opt/homebrew/bin/unar", "/usr/local/bin/unar", "/usr/bin/unar"]
+                .first(where: FileManager.default.isExecutableFile(atPath:)) else {
+                throw ExtractError.unsupportedFormat("密码解压需要安装 unar")
+            }
+            try runUnzipToolWithoutCheck(
+                tool: tool,
+                args: ["-q", "-f", "-o", destination.path, "-p", password, firstVolume.path]
+            )
+        } else {
+            switch format {
+            case .zip:
+                try extractZip(archive: firstVolume, to: destination)
+            case .rar:
+                try extractRar(archive: firstVolume, to: destination)
+            case .sevenZip:
+                try extract7z(archive: firstVolume, to: destination)
+            case .unknown:
+                throw ExtractError.unsupportedFormat(archiveURL.pathExtension)
+            }
         }
 
         // 查找解压后的游戏目录
@@ -222,6 +233,7 @@ public final class ArchiveExtractor {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
+        process.standardInput = FileHandle.nullDevice
         try process.run()
         process.waitUntilExit()
 
@@ -278,11 +290,12 @@ public final class ArchiveExtractor {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
+        process.standardInput = FileHandle.nullDevice
         try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
         if process.terminationStatus != 0 {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let err = String(data: data, encoding: .utf8) ?? "unknown"
             throw ExtractError.unzipFailed("\(tool): \(err)")
         }
@@ -297,7 +310,7 @@ public final class ArchiveExtractor {
         let fm = FileManager.default
 
         // 1. 检查根目录本身
-        if detector.detect(at: rootDir) != .unknown {
+        if detector.detect(at: rootDir) != .unknown || detector.findExecutable(at: rootDir, engine: .unknown) != nil {
             return rootDir
         }
 
@@ -321,7 +334,7 @@ public final class ArchiveExtractor {
             }
 
             // 检查是否是游戏目录
-            if detector.detect(at: item) != .unknown {
+            if detector.detect(at: item) != .unknown || detector.findExecutable(at: item, engine: .unknown) != nil {
                 return item
             }
         }
@@ -361,7 +374,7 @@ public final class ArchiveExtractor {
         ) else { return nil }
 
         // 先检查当前目录
-        if detector.detect(at: dir) != .unknown {
+        if detector.detect(at: dir) != .unknown || detector.findExecutable(at: dir, engine: .unknown) != nil {
             return dir
         }
 

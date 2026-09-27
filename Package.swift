@@ -29,7 +29,6 @@ let package = Package(
             dependencies: ["Gal4MacCore"],
             path: "Sources/Gal4MacCLI"
         ),
-        // SwiftUI UI
         .executableTarget(
             name: "Gal4MacUI",
             dependencies: ["Gal4MacCore"],
