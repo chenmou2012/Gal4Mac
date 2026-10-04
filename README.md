@@ -48,13 +48,16 @@
 从源码运行前需要安装 Mythic 并下载 Engine。引擎包含 [Wine](https://www.winehq.org/) 及
 [Apple Game Porting Toolkit](https://developer.apple.com/gamesportingtoolkit/) 组件；SwiftPM 构建不会自动打包 Engine，仓库不存放引擎二进制。
 
-## 安装
+## 安装与启动
 
-### 下载安装包
+### 双击运行（推荐）
 
-在 [Releases](https://github.com/chenmou2012/Gal4Mac/releases) 下载 `Gal4Mac-<版本>-macos-<架构>.dmg`，打开后把 `Gal4Mac.app` 拖进“应用程序”。发布页提供两个安装包：文件名带 `-with-engine` 的已内置 Mythic Engine，可直接使用；另一个体积很小，不含 Engine，需要先按下面的步骤安装 Mythic 并下载 Engine。
+1. 在 [Releases](https://github.com/chenmou2012/Gal4Mac/releases) 下载 `.dmg`。带 `-with-engine` 的已内置 Mythic Engine；另一个体积很小，不含 Engine，需要先用 `brew install --cask mythic` 安装 Mythic，并打开一次让它下载 Engine。
+2. 打开 DMG，把 `Gal4Mac.app` 拖进“应用程序”。
+3. 双击 `Gal4Mac` 启动。首次打开会被 Gatekeeper 拦截，见下文放行方法。
+4. 点击工具栏的“+”导入游戏，或在“设置”中添加游戏库文件夹后重新扫描，然后在游戏详情中点击“启动游戏”。
 
-安装包没有 Apple Developer ID 签名，也未经公证，首次打开会被 Gatekeeper 拦截。任选一种方式放行，每次安装只需做一次：
+安装包没有 Apple Developer ID 签名，也未经公证，任选一种方式放行，每次安装只需做一次：
 
 - macOS 14：在“应用程序”中右键点击 Gal4Mac，选择“打开”，再确认“打开”。
 - macOS 15 及更新：先双击打开一次并关闭提示，然后进入“系统设置 → 隐私与安全性”，在底部点击“仍要打开”。
@@ -62,29 +65,27 @@
 
 可用发布页中的 `.sha256` 文件校验下载：`shasum -a 256 -c Gal4Mac-*.dmg.sha256`。
 
-### 从源码运行
-
-### 快速开始
+### 从源码构建
 
 ```bash
-# 1. 安装 Mythic（提供 GPTK 引擎）
+# 1. 安装 Mythic 并打开一次，让它下载 Engine
 brew install --cask mythic
-
-# 2. 首次启动 Mythic，让它下载 Engine
 open /Applications/Mythic.app
 
-# 3. 在仓库目录编译
-swift build -c release
+# 2. 打包成可双击运行的 .app（输出在 dist-release/）
+bash Scripts/build_release.sh
+open dist-release/*.app
 
-# 4. 启动图形界面
+# 或直接运行开发版本 / CLI
 swift run Gal4MacApp
-
-# 5. 或运行 CLI
+swift build -c release
 ./.build/release/gal4mac doctor
 ./.build/release/gal4mac list
 ./.build/release/gal4mac scan ~/Games/Gal
 ./.build/release/gal4mac launch "游戏名称"
 ```
+
+加上 `ENGINE_DIR="$HOME/Library/Application Support/Mythic/Engine"` 可把 Engine 打进应用包，详见 [docs/RELEASING.md](docs/RELEASING.md)。
 
 ## 使用示例
 
