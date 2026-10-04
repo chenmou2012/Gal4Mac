@@ -71,6 +71,33 @@ final class LibraryViewModel: ObservableObject {
         return game
     }
 
+    func importExtractedGame(at url: URL, into libraryPath: URL, name: String, engine: EngineType, executable: String, locale: WineLocale, steamAppID: Int?, completion: @escaping (Result<Game, Error>) -> Void) {
+        guard config.libraryPaths.contains(where: { $0.standardizedFileURL == libraryPath.standardizedFileURL }) else {
+            completion(.failure(LibraryManager.LibraryError.pathUnavailable(libraryPath)))
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result {
+                try LibraryManager().importExtractedGame(
+                    at: url,
+                    into: libraryPath,
+                    engine: engine,
+                    executable: executable,
+                    displayName: name,
+                    wineLocale: locale,
+                    steamAppID: steamAppID
+                )
+            }
+            DispatchQueue.main.async {
+                if case .success(let game) = result {
+                    self?.reload()
+                    self?.status = "已导入 \(game.name)"
+                }
+                completion(result)
+            }
+        }
+    }
+
     func loadSteamMetadata(for game: Game) {
         guard let appID = game.steamAppID,
               steamMetadata[appID] == nil,

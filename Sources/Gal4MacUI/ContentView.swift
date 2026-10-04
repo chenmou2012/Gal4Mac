@@ -2,7 +2,12 @@ import AppKit
 import Gal4MacCore
 import SwiftUI
 
-private enum AppPage: String, Hashable {
+private enum SidebarItem: Hashable {
+    case library
+    case game(UUID)
+}
+
+private enum AppPage: String, CaseIterable, Hashable {
     case library, statistics, settings
 
     var title: String {
@@ -22,20 +27,21 @@ private enum AppPage: String, Hashable {
     }
 }
 
+/// 应用配色，跟随系统浅色/深色外观。
 enum GlassPalette {
-    static let background = Color(red: 0.055, green: 0.063, blue: 0.085)
-    static let surface = Color(red: 0.105, green: 0.115, blue: 0.145)
-    static let elevated = Color(red: 0.14, green: 0.15, blue: 0.19)
-    static let line = Color.white.opacity(0.09)
-    static let blue = Color(red: 0.04, green: 0.51, blue: 1)
-    static let secondary = Color(red: 0.68, green: 0.71, blue: 0.77)
+    static let background = Color(nsColor: .windowBackgroundColor)
+    static let surface = Color(nsColor: .controlBackgroundColor)
+    static let elevated = Color(nsColor: .underPageBackgroundColor)
+    static let line = Color(nsColor: .separatorColor)
+    static let blue = Color.accentColor
+    static let secondary = Color.secondary
 }
 
 struct ContentView: View {
     @EnvironmentObject private var library: LibraryViewModel
     @ObservedObject private var steamSession = SteamWebSession.shared
     @State private var page: AppPage = .library
-    @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var selectedGameID: UUID?
     @State private var search = ""
     @State private var engineFilter: EngineType?
@@ -45,12 +51,13 @@ struct ContentView: View {
     @State private var checkingSteamLogin = false
     @State private var steamSettingsMessage: String?
     @State private var settingsSteamOwnerID = UUID()
+    @State private var gamePendingRemoval: Game?
 
     private var selectedGame: Game? { library.games.first { $0.id == selectedGameID } }
     private var filteredGames: [Game] {
         library.games.filter { game in
             (engineFilter == nil || game.engine == engineFilter) &&
-            (search.isEmpty || game.name.localizedCaseInsensitiveContains(search) || game.engine.displayName.localizedCaseInsensitiveContains(search))
+            (search.isEmpty || game.name.localizedCaseInsensitiveContains(search))
         }
         .sorted {
             switch ($0.lastPlayed, $1.lastPlayed) {
@@ -63,50 +70,63 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $splitViewVisibility) {
-            sidebar
-                .toolbar(removing: .sidebarToggle)
-        } detail: {
-            ZStack {
-                GlassPalette.background.ignoresSafeArea()
-                if let game = selectedGame, page == .library {
-                    gameDetail(game)
-                } else {
-                    switch page {
-                    case .library: libraryPage
-                    case .statistics: statisticsPage
-                    case .settings: settingsPage
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            List(selection: Binding<SidebarItem?>(
+                get: {
+                    guard page == .library else { return nil }
+                    return selectedGameID.map(SidebarItem.game) ?? .library
+                },
+                set: {
+                    switch $0 {
+                    case .library?: show(.library)
+                    case .game(let id)?: page = .library; selectedGameID = id; pendingSteamGame = nil
+                    case nil: break
+                    }
+                }
+            )) {
+                Label(AppPage.library.title, systemImage: AppPage.library.symbol).tag(SidebarItem.library)
+                Section("游戏 · \(library.games.count)") {
+                    ForEach(library.games.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }) { game in
+                        Text(game.name).lineLimit(1).help(game.name).tag(SidebarItem.game(game.id))
                     }
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                HStack {
-                    statusBar.frame(maxWidth: 320)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, library.status == nil ? 0 : 12)
-            }
-            .navigationTitle("")
-            .removeDefaultToolbarTitle()
-            .toolbar {
-                if selectedGame != nil && page == .library {
-                    ToolbarItem(placement: .navigation) {
-                        Button { selectedGameID = nil } label: {
-                            Label("返回游戏库", systemImage: "chevron.left")
+                VStack(spacing: 2) {
+                    ForEach([AppPage.statistics, .settings], id: \.self) { item in
+                        Button { show(item) } label: {
+                            Label(item.title, systemImage: item.symbol)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(page == item ? Color.accentColor.opacity(0.25) : .clear,
+                                            in: RoundedRectangle(cornerRadius: 6))
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                     }
                 }
+                .padding(10)
             }
+            .toolbar(removing: .sidebarToggle)
+            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
+        } detail: {
+            Group {
+                switch page {
+                case .library:
+                    if let game = selectedGame { gameDetail(game) } else { libraryPage }
+                case .statistics: statisticsPage
+                case .settings: settingsPage
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottom) { statusBar }
+            .navigationTitle(page == .library ? (selectedGame?.name ?? page.title) : page.title)
+            .toolbar { toolbarContent }
         }
-        .background {
-            TitlebarBrandInstaller(library: library).frame(width: 0, height: 0)
+        .onChange(of: columnVisibility) { _, visibility in
+            if visibility != .all { columnVisibility = .all }
         }
-        .navigationSplitViewStyle(.balanced)
-        .onChange(of: splitViewVisibility) { _, visibility in
-            if visibility != .all { splitViewVisibility = .all }
-        }
-        .tint(GlassPalette.blue)
         .sheet(isPresented: $library.showingImportWizard) {
             ImportWizardView { game in
                 page = .library
@@ -129,6 +149,22 @@ struct ContentView: View {
                 library.updateSteamAppID(for: game, to: appID)
             }
         }
+        .confirmationDialog(
+            "从游戏库移除？",
+            isPresented: Binding(
+                get: { gamePendingRemoval != nil },
+                set: { if !$0 { gamePendingRemoval = nil } }
+            ),
+            presenting: gamePendingRemoval
+        ) { game in
+            Button("移除 \(game.name)", role: .destructive) {
+                library.remove(game)
+                gamePendingRemoval = nil
+            }
+            Button("取消", role: .cancel) { gamePendingRemoval = nil }
+        } message: { _ in
+            Text("只移除游戏库记录，不会删除游戏文件。")
+        }
         .alert("操作失败", isPresented: Binding(
             get: { library.error != nil },
             set: { if !$0 { library.error = nil } }
@@ -150,264 +186,139 @@ struct ContentView: View {
         }
     }
 
-    private var sidebar: some View {
-        List {
-            Button {
-                page = .library
-                selectedGameID = nil
-                pendingSteamGame = nil
-            } label: {
-                Label("游戏库", systemImage: "square.grid.2x2")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 5)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .listRowBackground(page == .library && selectedGameID == nil ? GlassPalette.blue.opacity(0.22) : Color.clear)
-
-            Section("游戏 · \(library.games.count)") {
-                ForEach(library.games.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }) { game in
-                    Button {
-                        page = .library
-                        selectedGameID = game.id
-                        pendingSteamGame = nil
-                    } label: {
-                        Text(game.name)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 5)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(game.name)
-                    .listRowBackground(selectedGameID == game.id && page == .library ? GlassPalette.blue.opacity(0.22) : Color.clear)
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 0) {
-                if library.launchingID != nil, let status = library.status {
-                    HStack(alignment: .top, spacing: 10) {
-                        ProgressView().controlSize(.small).padding(.top, 2)
-                        Text(status)
-                            .font(.caption)
-                            .lineLimit(3)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(12)
-                    .background(GlassPalette.elevated, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(GlassPalette.line))
-                    .padding(.bottom, 8)
-                }
-                Divider().padding(.bottom, 4)
-                dockButton(.statistics)
-                dockButton(.settings)
-            }
-            .font(.callout.weight(.medium))
-            .padding(.horizontal, 12)
-            .padding(.top, 4)
-            .padding(.bottom, 6)
-            .background(.regularMaterial)
-        }
-        .navigationSplitViewColumnWidth(min: 205, ideal: 228, max: 260)
+    private func show(_ item: AppPage) {
+        page = item
+        selectedGameID = nil
+        if item != .settings { pendingSteamGame = nil }
     }
 
-    private var libraryPage: some View {
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                pageHeader("游戏库", subtitle: "你的游戏都在这里。") { EmptyView() }
+    // MARK: - 工具栏
 
-                if let featured = library.mostRecent {
-                    featuredCard(featured)
+    @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
+        if page == .library, selectedGame != nil {
+            ToolbarItem(placement: .navigation) {
+                Button { selectedGameID = nil } label: {
+                    Label("返回游戏库", systemImage: "chevron.left")
                 }
-
-                HStack(spacing: 12) {
-                    HStack(spacing: 9) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField("搜索游戏或引擎", text: $search)
-                            .textFieldStyle(.plain)
-                            .accessibilityLabel("搜索游戏或引擎")
-                    }
-                    .padding(.horizontal, 13)
-                    .frame(height: 36)
-                    .background(GlassPalette.elevated, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(GlassPalette.line))
-
+            }
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+            if page == .library, selectedGame == nil {
+                Menu {
                     Picker("引擎", selection: $engineFilter) {
                         Text("全部引擎").tag(EngineType?.none)
                         ForEach(EngineType.allCases.filter { $0 != .unknown }, id: \.self) { engine in
                             Text(engine.displayName).tag(Optional(engine))
                         }
                     }
-                    .labelsHidden()
-                    .frame(width: 150)
+                    .pickerStyle(.inline)
+                } label: {
+                    Label("按引擎筛选", systemImage: engineFilter == nil
+                          ? "line.3.horizontal.decrease.circle"
+                          : "line.3.horizontal.decrease.circle.fill")
                 }
+                .help("按引擎筛选")
+            }
+            Button { library.scan() } label: { Label("重新扫描", systemImage: "arrow.clockwise") }
+                .help("重新扫描游戏库")
+                .disabled(library.isScanning)
+            Button { library.showingImportWizard = true } label: { Label("导入游戏", systemImage: "plus") }
+                .help("导入游戏")
+        }
+    }
 
-                HStack(alignment: .firstTextBaseline) {
-                    Text("全部游戏").font(.title3.weight(.semibold))
-                    Text("\(filteredGames.count)").foregroundStyle(.secondary)
-                    Spacer()
-                }
+    // MARK: - 游戏库
 
-                if filteredGames.isEmpty {
-                    emptyLibrary
-                } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 180, maximum: 230), spacing: 18)], alignment: .leading, spacing: 22) {
+    private var libraryPage: some View {
+        Group {
+            if filteredGames.isEmpty {
+                emptyLibrary
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 20)], alignment: .leading, spacing: 24) {
                         ForEach(filteredGames) { game in
-                            Button {
-                                selectedGameID = game.id
-                            } label: {
-                                GameCard(game: game)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("查看 \(game.name) 的详情")
+                            Button { selectedGameID = game.id } label: { GameCard(game: game) }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("查看 \(game.name) 的详情")
+                                .contextMenu { gameMenu(for: game) }
                         }
                     }
+                    .padding(24)
                 }
             }
-            .frame(maxWidth: 1180, alignment: .leading)
-            .padding(32)
         }
+        .searchable(text: $search, placement: .toolbar, prompt: "搜索游戏")
     }
 
-    private var emptyLibrary: some View {
-        VStack(spacing: 13) {
-            Image(systemName: search.isEmpty ? "square.stack.3d.up" : "magnifyingglass")
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(GlassPalette.secondary)
-            Text(search.isEmpty ? "还没有游戏" : "没有找到匹配的游戏")
-                .font(.title3.weight(.semibold))
-            Text(search.isEmpty ? "导入一个游戏文件夹，或在设置中添加游戏库路径。" : "试试其他名称或选择全部引擎。")
-                .foregroundStyle(.secondary)
-            if search.isEmpty {
+    @ViewBuilder private var emptyLibrary: some View {
+        if !search.isEmpty || engineFilter != nil {
+            ContentUnavailableView {
+                Label("没有找到匹配的游戏", systemImage: "magnifyingglass")
+            } description: {
+                Text("试试其他名称或选择全部引擎。")
+            } actions: {
+                Button("清除筛选") {
+                    search = ""
+                    engineFilter = nil
+                }
+            }
+        } else {
+            ContentUnavailableView {
+                Label("还没有游戏", systemImage: "square.stack.3d.up")
+            } description: {
+                Text("导入一个游戏文件夹，或在设置中添加游戏库路径。")
+            } actions: {
                 Button("导入游戏…") { library.showingImportWizard = true }
                     .buttonStyle(.borderedProminent)
-                    .padding(.top, 4)
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 76)
-        .background(GlassPalette.surface, in: RoundedRectangle(cornerRadius: 20))
-        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(GlassPalette.line))
     }
 
-    private func featuredCard(_ game: Game) -> some View {
-        HStack(spacing: 24) {
-            GameArtwork(game: game)
-                .frame(width: 112, height: 145)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            VStack(alignment: .leading, spacing: 10) {
-                Label("继续游玩", systemImage: "clock.arrow.circlepath")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(GlassPalette.secondary)
-                Text(game.name).font(.system(size: 27, weight: .bold, design: .rounded)).lineLimit(2)
-                Text("\(game.engine.displayName)  ·  已游玩 \(game.playtimeDescription)")
-                    .font(.callout).foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                HStack(spacing: 10) {
-                    Button { library.launch(game) } label: {
-                        Label("继续游玩", systemImage: "play.fill").frame(height: 40)
-                    }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(library.launchingID != nil || !FileManager.default.fileExists(atPath: game.path.path))
-                    Button { selectedGameID = game.id } label: { Text("查看详情").frame(height: 40) }
-                        .buttonStyle(.bordered)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(20)
-        .frame(height: 190)
-        .background {
-            RoundedRectangle(cornerRadius: 20)
-                .fill(LinearGradient(colors: [GlassPalette.elevated, GlassPalette.surface, GlassPalette.background], startPoint: .topLeading, endPoint: .bottomTrailing))
-        }
-        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(GlassPalette.line))
+    @ViewBuilder private func gameMenu(for game: Game) -> some View {
+        Button("启动游戏") { library.launch(game) }
+            .disabled(!canLaunch(game))
+        Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([game.path]) }
+        Divider()
+        Button("从游戏库移除…", role: .destructive) { gamePendingRemoval = game }
     }
+
+    private func canLaunch(_ game: Game) -> Bool {
+        library.launchingID == nil && FileManager.default.fileExists(atPath: game.path.path)
+    }
+
+    // MARK: - 游戏详情
 
     private func gameDetail(_ game: Game) -> some View {
         let metadata = game.steamAppID.flatMap { library.steamMetadata[$0] }
         return ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                HStack(alignment: .bottom, spacing: 24) {
-                    let artwork = GameArtwork(game: game, showsPlaceholder: false)
-                    if artwork.hasArtwork {
-                        artwork
-                            .frame(width: 156, height: 204)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                    }
-                    VStack(alignment: .leading, spacing: 11) {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(alignment: .top, spacing: 20) {
+                    GameArtwork(game: game)
+                        .frame(width: 120, height: 160)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(game.name)
-                            .font(.system(size: 31, weight: .bold, design: .serif))
-                        Text("已游玩 \(game.playtimeDescription)  ·  \(compatibilityLabel(game))")
+                            .font(.title.bold())
+                            .textSelection(.enabled)
+                        Text("\(game.engine.displayName) · 已游玩 \(game.playtimeDescription) · \(compatibilityLabel(game))")
                             .foregroundStyle(.secondary)
+                        Spacer(minLength: 12)
+                        HStack(spacing: 8) { gameActionButtons(for: game) }
+                            .controlSize(.large)
                     }
-                    Spacer(minLength: 0)
                 }
-                .padding(24)
-                .frame(minHeight: 250, alignment: .bottomLeading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background {
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(GlassPalette.surface)
-                        .overlay {
-                            detailHeroBackground(metadata?.libraryHeroURL ?? metadata?.backgroundURL ?? metadata?.headerURL)
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
-                }
-                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(GlassPalette.line))
-
-                HStack(spacing: 10) {
-                    Button { library.launch(game) } label: {
-                        Label(library.launchingID == game.id ? "运行中" : "启动游戏", systemImage: "play.fill")
-                            .frame(height: 40)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(library.launchingID != nil || !FileManager.default.fileExists(atPath: game.path.path))
-                    if library.launchingID == game.id && library.canStop {
-                        Button { library.stop() } label: { Text("停止游戏").frame(height: 40) }
-                            .buttonStyle(.bordered)
-                    }
-                    Button { NSWorkspace.shared.activateFileViewerSelecting([game.path]) } label: {
-                        Label("在 Finder 中显示", systemImage: "folder")
-                            .frame(height: 40)
-                    }
-                    .buttonStyle(.bordered)
-                    if game.steamAppID != nil {
-                        Button { syncSteamSaves(for: game) } label: {
-                            Label(checkingSteamLogin ? "检查 Steam 登录…" : "同步 Steam 存档", systemImage: "icloud.and.arrow.down")
-                                .frame(height: 40)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(checkingSteamLogin || library.launchingID == game.id)
-                    } else {
-                        Button { steamMatchGame = game } label: {
-                            Label("匹配 Steam 游戏", systemImage: "magnifyingglass")
-                                .frame(height: 40)
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    Spacer(minLength: 0)
-                }
+                .frame(minHeight: 160)
 
                 if let metadata {
-                    detailPanel("Steam 介绍", symbol: "text.alignleft") {
+                    VStack(alignment: .leading, spacing: 8) {
                         if let description = metadata.description {
                             Text(description)
-                                .font(.callout)
-                                .foregroundStyle(GlassPalette.secondary)
+                                .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         HStack(spacing: 14) {
-                            if let developer = metadata.developers.first {
-                                Text("开发：\(developer)")
-                            }
-                            if let release = metadata.releaseDate {
-                                Text("发行：\(release)")
-                            }
-                            Spacer()
+                            if let developer = metadata.developers.first { Text("开发：\(developer)") }
+                            if let release = metadata.releaseDate { Text("发行：\(release)") }
                             Link("Steam 商店", destination: URL(string: "https://store.steampowered.com/app/\(metadata.appID)/")!)
                         }
                         .font(.caption)
@@ -417,333 +328,72 @@ struct ContentView: View {
                     ProgressView("正在加载 Steam 介绍…").controlSize(.small)
                 }
 
-                HStack(alignment: .top, spacing: 18) {
-                    detailPanel("游戏信息", symbol: "info.circle") {
-                        infoRow("可执行文件", game.executable)
-                        infoRow("上次游玩", game.lastPlayed?.formatted(date: .abbreviated, time: .shortened) ?? "尚未游玩")
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("游戏目录").font(.caption).foregroundStyle(.secondary)
-                            Text(game.path.path).font(.caption.monospaced()).textSelection(.enabled)
-                                .foregroundStyle(GlassPalette.secondary)
+                GroupBox {
+                    Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 10) {
+                        GridRow {
+                            Text("语言环境").foregroundStyle(.secondary)
+                            Picker("语言环境", selection: Binding(
+                                get: { game.wineLocale },
+                                set: { library.updateLocale(for: game, to: $0) }
+                            )) {
+                                Text("自动").tag(WineLocale.automatic)
+                                Text("简体中文").tag(WineLocale.simplifiedChinese)
+                                Text("日语").tag(WineLocale.japanese)
+                            }
+                            .labelsHidden()
+                            .fixedSize()
+                        }
+                        GridRow {
+                            Text("可执行文件").foregroundStyle(.secondary)
+                            Text(game.executable).textSelection(.enabled)
+                        }
+                        GridRow {
+                            Text("游戏目录").foregroundStyle(.secondary)
+                            Text(game.path.path)
+                                .font(.callout.monospaced())
+                                .textSelection(.enabled)
                                 .lineLimit(3)
                         }
-                    }
-                    detailPanel("运行设置", symbol: "slider.horizontal.3") {
-                        Text("每款游戏使用独立的 Wine 容器，启动时会自动应用对应引擎的配置。")
-                            .font(.callout).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Picker("Windows 语言环境", selection: Binding(
-                            get: { game.wineLocale },
-                            set: { library.updateLocale(for: game, to: $0) }
-                        )) {
-                            Text("自动").tag(WineLocale.automatic)
-                            Text("简体中文").tag(WineLocale.simplifiedChinese)
-                            Text("日语").tag(WineLocale.japanese)
+                        GridRow {
+                            Text("上次游玩").foregroundStyle(.secondary)
+                            Text(game.lastPlayed?.formatted(date: .abbreviated, time: .shortened) ?? "尚未游玩")
                         }
-                        .padding(.top, 8)
                     }
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Button(role: .destructive) { library.remove(game) } label: {
-                    Label("从游戏库移除", systemImage: "trash")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.red)
-                .help("只移除游戏库记录，不删除游戏文件")
-                }
-                .frame(maxWidth: 1100, alignment: .leading)
-                .padding(32)
+
+                Button("从游戏库移除…", role: .destructive) { gamePendingRemoval = game }
+                    .help("只移除游戏库记录，不删除游戏文件")
+            }
+            .frame(maxWidth: 820, alignment: .leading)
+            .padding(24)
         }
         .task(id: game.steamAppID) { library.loadSteamMetadata(for: game) }
     }
 
-    private func detailHeroBackground(_ url: URL?) -> some View {
-        GeometryReader { proxy in
-            ZStack {
-                if let url {
-                    AsyncImage(url: url) { image in
-                        image.resizable().scaledToFill()
-                            .frame(width: proxy.size.width, height: proxy.size.height)
-                            .clipped()
-                    } placeholder: { Color.clear }
-                }
-                LinearGradient(
-                    colors: [GlassPalette.background.opacity(0.28), GlassPalette.background.opacity(0.68)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+    @ViewBuilder private func gameActionButtons(for game: Game) -> some View {
+        if library.launchingID == game.id {
+            Button("停止游戏") { library.stop() }
+                .disabled(!library.canStop)
+        } else {
+            Button { library.launch(game) } label: { Label("启动游戏", systemImage: "play.fill") }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canLaunch(game))
+        }
+        Button { NSWorkspace.shared.activateFileViewerSelecting([game.path]) } label: {
+            Label("在 Finder 中显示", systemImage: "folder")
+        }
+        if game.steamAppID != nil {
+            Button { syncSteamSaves(for: game) } label: {
+                Label(checkingSteamLogin ? "检查 Steam 登录…" : "同步 Steam 存档", systemImage: "icloud.and.arrow.down")
+            }
+            .disabled(checkingSteamLogin || library.launchingID == game.id)
+        } else {
+            Button { steamMatchGame = game } label: {
+                Label("匹配 Steam 游戏", systemImage: "magnifyingglass")
             }
         }
-        .allowsHitTesting(false)
-    }
-
-    private var statisticsPage: some View {
-        let games = library.games
-        let playedGames = games.filter { $0.playtime > 0 }
-        let rankedGames = playedGames.sorted { $0.playtime > $1.playtime }
-        let recentGames = games
-            .filter { $0.lastPlayed != nil }
-            .sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
-        let recentCutoff = Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .distantPast
-        let recentlyPlayedCount = recentGames.filter { ($0.lastPlayed ?? .distantPast) >= recentCutoff }.count
-        let engineCounts = EngineType.allCases
-            .map { engine in (engine: engine, count: games.filter { $0.engine == engine }.count) }
-            .filter { $0.count > 0 }
-            .sorted { $0.count > $1.count }
-
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                pageHeader("游玩统计", subtitle: "本地游戏库概览 · 数据随每次游戏结束更新。") {
-                    Label("仅本机", systemImage: "lock.shield")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(GlassPalette.secondary)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 7)
-                        .background(GlassPalette.surface, in: Capsule())
-                        .overlay(Capsule().strokeBorder(GlassPalette.line))
-                }
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 172), spacing: 14)], spacing: 14) {
-                    metric("累计游玩时长", value: Game.formatDuration(library.totalPlaytime), symbol: "clock")
-                    metric("游戏总数", value: "\(games.count)", symbol: "square.stack.3d.up")
-                    metric("已游玩作品", value: "\(playedGames.count)", symbol: "gamecontroller")
-                    metric("近 30 天游玩", value: "\(recentlyPlayedCount)", symbol: "calendar")
-                }
-
-                HStack(alignment: .top, spacing: 18) {
-                    detailPanel("游玩时长排行", symbol: "chart.bar.xaxis") {
-                        if rankedGames.isEmpty {
-                            statisticsEmptyState("开始游玩后，这里会显示累计时长排行。", symbol: "hourglass")
-                        } else {
-                            VStack(spacing: 15) {
-                                ForEach(Array(rankedGames.prefix(8).enumerated()), id: \.element.id) { index, game in
-                                    VStack(alignment: .leading, spacing: 7) {
-                                        HStack(spacing: 10) {
-                                            Text(String(format: "%02d", index + 1))
-                                                .font(.caption.monospacedDigit().weight(.semibold))
-                                                .foregroundStyle(index == 0 ? GlassPalette.blue : GlassPalette.secondary)
-                                                .frame(width: 24, alignment: .leading)
-                                            Text(game.name).font(.callout.weight(.medium)).lineLimit(1)
-                                            Spacer(minLength: 8)
-                                            Text(game.playtimeDescription)
-                                                .font(.callout.monospacedDigit().weight(.semibold))
-                                                .foregroundStyle(.primary)
-                                        }
-                                        GeometryReader { proxy in
-                                            Capsule().fill(GlassPalette.elevated)
-                                                .overlay(alignment: .leading) {
-                                                    Capsule().fill(GlassPalette.blue.gradient)
-                                                        .frame(width: max(3, proxy.size.width * game.playtime / max(rankedGames[0].playtime, 1)))
-                                                }
-                                        }
-                                        .frame(height: 6)
-                                        .padding(.leading, 34)
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 2)
-                        }
-                    }
-
-                    detailPanel("游戏引擎分布", symbol: "square.stack.3d.up") {
-                        if engineCounts.isEmpty {
-                            statisticsEmptyState("导入游戏后，这里会显示引擎分布。", symbol: "square.grid.2x2")
-                        } else {
-                            VStack(spacing: 15) {
-                                ForEach(engineCounts, id: \.engine) { item in
-                                    VStack(spacing: 7) {
-                                        HStack {
-                                            Circle().fill(engineColor(item.engine)).frame(width: 8, height: 8)
-                                            Text(item.engine.displayName).font(.callout).lineLimit(1)
-                                            Spacer(minLength: 8)
-                                            Text("\(item.count)")
-                                                .font(.callout.monospacedDigit().weight(.semibold))
-                                            Text(String(format: "%.0f%%", Double(item.count) / Double(max(games.count, 1)) * 100))
-                                                .font(.caption.monospacedDigit())
-                                                .foregroundStyle(.secondary)
-                                                .frame(width: 42, alignment: .trailing)
-                                        }
-                                        GeometryReader { proxy in
-                                            Capsule().fill(GlassPalette.elevated)
-                                                .overlay(alignment: .leading) {
-                                                    Capsule().fill(engineColor(item.engine).gradient)
-                                                        .frame(width: max(3, proxy.size.width * Double(item.count) / Double(max(games.count, 1))))
-                                                }
-                                        }
-                                        .frame(height: 6)
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 2)
-                        }
-                    }
-                }
-
-                detailPanel("最近游玩", symbol: "clock.arrow.circlepath") {
-                    if recentGames.isEmpty {
-                        statisticsEmptyState("游玩记录会在游戏正常退出后更新。", symbol: "clock")
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(Array(recentGames.prefix(5).enumerated()), id: \.element.id) { index, game in
-                                HStack(spacing: 12) {
-                                    RoundedRectangle(cornerRadius: 5)
-                                        .fill(engineColor(game.engine).opacity(0.18))
-                                        .frame(width: 34, height: 34)
-                                        .overlay {
-                                            Image(systemName: "gamecontroller.fill")
-                                                .font(.system(size: 13, weight: .medium))
-                                                .foregroundStyle(engineColor(game.engine))
-                                        }
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(game.name).font(.callout.weight(.medium)).lineLimit(1)
-                                        Text(game.engine.displayName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                    Spacer()
-                                    VStack(alignment: .trailing, spacing: 3) {
-                                        Text(game.playtimeDescription).font(.callout.monospacedDigit().weight(.medium))
-                                        Text(game.lastPlayed?.formatted(date: .abbreviated, time: .shortened) ?? "—")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                                .padding(.vertical, 11)
-                                if index < min(recentGames.count, 5) - 1 {
-                                    Divider().overlay(GlassPalette.line)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: 1120, alignment: .leading)
-            .padding(30)
-        }
-    }
-
-    private func statisticsEmptyState(_ message: String, symbol: String) -> some View {
-        Label(message, systemImage: symbol)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, minHeight: 90, alignment: .center)
-    }
-
-    private func engineColor(_ engine: EngineType) -> Color {
-        switch engine {
-        case .unity: .cyan
-        case .siglus: .indigo
-        case .kirikiri: .orange
-        case .renpy: .pink
-        case .tyranoScript: .teal
-        case .realLive: .purple
-        case .nscripter: .yellow
-        case .yuris: .mint
-        case .artemis: .red
-        case .unknown: GlassPalette.secondary
-        }
-    }
-
-    private var settingsPage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                pageHeader("设置", subtitle: "管理本地游戏库和运行环境。") { EmptyView() }
-                detailPanel("Steam 账户", symbol: "person.crop.circle") {
-                    if let game = pendingSteamGame {
-                        Label("登录后继续同步 \(game.name) 的云存档。", systemImage: "icloud.and.arrow.down")
-                            .font(.callout)
-                            .foregroundStyle(GlassPalette.blue)
-                    }
-                    HStack {
-                        Circle()
-                            .fill(steamSession.authentication == .signedIn ? .green : .orange)
-                            .frame(width: 8, height: 8)
-                        Text(steamSession.authentication == .signedIn ? "已登录 Steam" : "尚未登录 Steam")
-                        Spacer()
-                        Button("刷新状态") { steamSession.verifyAuthentication { _ in } }
-                            .disabled(steamSession.authentication == .checking)
-                    }
-                    Text("在下方 Steam 网页登录。登录状态会保存在这台 Mac 的应用数据中。")
-                        .font(.callout).foregroundStyle(.secondary)
-                    if let steamSettingsMessage {
-                        Text(steamSettingsMessage).font(.caption).foregroundStyle(.orange)
-                    }
-                    SteamRemoteStorageWebView(
-                        ownerID: settingsSteamOwnerID,
-                        pageURL: SteamWebSession.accountURL,
-                        onDownloaded: { url, _ in
-                            try? FileManager.default.removeItem(at: url)
-                            steamSettingsMessage = "请从游戏详情页同步该游戏的存档。"
-                        },
-                        onError: { steamSettingsMessage = $0 }
-                    )
-                    .frame(height: 360)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(GlassPalette.line))
-                    .onDisappear { steamSession.release(ownerID: settingsSteamOwnerID) }
-                }
-                detailPanel("游戏库位置", symbol: "folder") {
-                    ForEach(library.config.libraryPaths, id: \.self) { path in
-                        HStack {
-                            Image(systemName: "folder.fill").foregroundStyle(GlassPalette.blue)
-                            Text(path.path).font(.callout).lineLimit(1).truncationMode(.middle)
-                            Spacer()
-                            Button { library.removeLibraryFolder(path) } label: { Image(systemName: "minus.circle") }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("移除游戏库路径 \(path.path)")
-                        }
-                        .padding(.vertical, 8)
-                    }
-                    Button { library.chooseLibraryFolder() } label: { Label("添加文件夹…", systemImage: "plus") }
-                        .buttonStyle(.bordered)
-                        .padding(.top, 5)
-                }
-                detailPanel("运行环境", symbol: "shippingbox") {
-                    HStack {
-                        Circle().fill(library.engineReady ? .green : .orange).frame(width: 8, height: 8)
-                        Text(library.engineReady ? "Mythic Engine 已就绪" : "未检测到 Mythic Engine")
-                        Spacer()
-                    }
-                    Text("游戏启动依赖本机安装的 Mythic Engine。")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: 850, alignment: .leading)
-            .padding(32)
-        }
-    }
-
-    private var statusBar: some View {
-        Group {
-            if library.launchingID == nil, let status = library.status {
-                HStack(spacing: 10) {
-                    if library.isScanning { ProgressView().controlSize(.small) }
-                    Text(status).font(.callout).lineLimit(1)
-                    Spacer()
-                    if !library.isScanning && library.launchingID == nil {
-                        Button { library.status = nil } label: { Image(systemName: "xmark") }
-                            .buttonStyle(.plain).accessibilityLabel("关闭状态提示")
-                    }
-                }
-                .padding(.horizontal, 16)
-                .frame(height: 44)
-                .glassPanel()
-            }
-        }
-    }
-
-    private func dockButton(_ item: AppPage) -> some View {
-        Button {
-            page = item
-            selectedGameID = nil
-            if item != .settings { pendingSteamGame = nil }
-        } label: {
-            Label(item.title, systemImage: item.symbol)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 32)
-                .padding(.horizontal, 12)
-                .background(page == item ? GlassPalette.blue.opacity(0.26) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 10))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(item.title)
     }
 
     private func syncSteamSaves(for game: Game) {
@@ -764,54 +414,228 @@ struct ContentView: View {
         }
     }
 
-    private func pageHeader<Accessory: View>(_ title: String, subtitle: String, @ViewBuilder accessory: () -> Accessory) -> some View {
-        HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title).font(.system(size: 30, weight: .bold, design: .rounded))
-                Text(subtitle).font(.callout).foregroundStyle(.secondary)
-            }
-            Spacer()
-            accessory()
-        }
-    }
-
-    private func detailPanel<Content: View>(_ title: String, symbol: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label(title, systemImage: symbol).font(.headline)
-            Divider().overlay(GlassPalette.line)
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(22)
-        .background(GlassPalette.surface, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(GlassPalette.line))
-    }
-
-    private func infoRow(_ title: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title).foregroundStyle(.secondary)
-            Spacer(minLength: 12)
-            Text(value).multilineTextAlignment(.trailing).lineLimit(2)
-        }
-        .font(.callout)
-    }
-
-    private func metric(_ title: String, value: String, symbol: String) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label(title, systemImage: symbol).font(.callout).foregroundStyle(.secondary)
-            Text(value).font(.system(size: 27, weight: .semibold, design: .rounded)).lineLimit(1).minimumScaleFactor(0.7)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
-        .background(GlassPalette.surface, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(GlassPalette.line))
-    }
-
     private func compatibilityLabel(_ game: Game) -> String {
         switch game.engine.compatibility {
         case .excellent, .good, .native: "兼容性良好"
         case .experimental: "实验性兼容"
         case .unsupported: "兼容性未知"
+        }
+    }
+
+    // MARK: - 统计
+
+    private var statisticsPage: some View {
+        let games = library.games
+        let ranked = games.filter { $0.playtime > 0 }.sorted { $0.playtime > $1.playtime }
+        let recent = games.filter { $0.lastPlayed != nil }
+            .sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
+        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .distantPast
+        let recentCount = recent.filter { ($0.lastPlayed ?? .distantPast) >= cutoff }.count
+        let average = ranked.isEmpty ? "—" : Game.formatDuration(library.totalPlaytime / Double(ranked.count))
+        let engineCounts = EngineType.allCases
+            .map { engine in (engine: engine, count: games.filter { $0.engine == engine }.count) }
+            .filter { $0.count > 0 }
+            .sorted { $0.count > $1.count }
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+                    metric("累计时长", value: Game.formatDuration(library.totalPlaytime))
+                    metric("游戏总数", value: "\(games.count)")
+                    metric("已游玩", value: "\(ranked.count)")
+                    metric("未游玩", value: "\(games.count - ranked.count)")
+                    metric("近 30 天游玩", value: "\(recentCount)")
+                    metric("平均每款时长", value: average)
+                    metric("最常玩", value: ranked.first?.name ?? "—")
+                    metric("最近游玩", value: recent.first?.name ?? "—")
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) { statisticsPanels(ranked, engineCounts, games.count) }
+                    VStack(spacing: 16) { statisticsPanels(ranked, engineCounts, games.count) }
+                }
+
+                GroupBox("最近游玩") {
+                    if recent.isEmpty {
+                        emptyHint("游戏正常退出后，这里会显示最近的游玩记录。")
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(Array(recent.prefix(8).enumerated()), id: \.element.id) { index, game in
+                                if index > 0 { Divider() }
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(game.name).lineLimit(1)
+                                        Text(game.engine.displayName).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer(minLength: 8)
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        Text(game.playtimeDescription).monospacedDigit()
+                                        Text(game.lastPlayed?.formatted(date: .abbreviated, time: .shortened) ?? "—")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 8)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                    }
+                }
+
+                Text("统计仅保存在本机，随每次游戏结束更新。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: 900, alignment: .leading)
+            .padding(24)
+        }
+    }
+
+    @ViewBuilder private func statisticsPanels(_ ranked: [Game], _ engineCounts: [(engine: EngineType, count: Int)], _ total: Int) -> some View {
+        GroupBox("游玩时长排行") {
+            if ranked.isEmpty {
+                emptyHint("游戏正常退出后，这里会显示累计时长。")
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(ranked.prefix(8)) { game in
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack {
+                                Text(game.name).lineLimit(1)
+                                Spacer(minLength: 8)
+                                Text(game.playtimeDescription).monospacedDigit().foregroundStyle(.secondary)
+                            }
+                            ProgressView(value: game.playtime, total: max(ranked[0].playtime, 1))
+                        }
+                    }
+                }
+                .padding(8)
+            }
+        }
+        GroupBox("引擎分布") {
+            if engineCounts.isEmpty {
+                emptyHint("导入游戏后，这里会显示引擎分布。")
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(engineCounts, id: \.engine) { item in
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack {
+                                Text(item.engine.displayName).lineLimit(1)
+                                Spacer(minLength: 8)
+                                Text("\(item.count) · \(Int((Double(item.count) / Double(max(total, 1)) * 100).rounded()))%")
+                                    .monospacedDigit().foregroundStyle(.secondary)
+                            }
+                            ProgressView(value: Double(item.count), total: Double(max(total, 1)))
+                        }
+                    }
+                }
+                .padding(8)
+            }
+        }
+    }
+
+    private func emptyHint(_ text: String) -> some View {
+        Text(text).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 80)
+    }
+
+    private func metric(_ title: String, value: String) -> some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.caption).foregroundStyle(.secondary)
+                Text(value).font(.title3.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(4)
+        }
+    }
+
+    // MARK: - 设置
+
+    private var settingsPage: some View {
+        Form {
+            Section("游戏库位置") {
+                ForEach(library.config.libraryPaths, id: \.self) { path in
+                    HStack {
+                        Label(path.path, systemImage: "folder")
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button { library.removeLibraryFolder(path) } label: { Image(systemName: "minus.circle") }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("移除游戏库路径 \(path.path)")
+                    }
+                }
+                Button("添加文件夹…") { library.chooseLibraryFolder() }
+            }
+
+            Section("运行环境") {
+                LabeledContent("Mythic Engine") {
+                    Label(library.engineReady ? "已就绪" : "未检测到",
+                          systemImage: library.engineReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(library.engineReady ? .green : .orange)
+                }
+            }
+
+            Section {
+                if let game = pendingSteamGame {
+                    Label("登录后继续同步 \(game.name) 的云存档。", systemImage: "icloud.and.arrow.down")
+                        .foregroundStyle(.tint)
+                }
+                LabeledContent("状态") {
+                    HStack {
+                        Text(steamSession.authentication == .signedIn ? "已登录" : "未登录")
+                        Button("刷新") { steamSession.verifyAuthentication { _ in } }
+                            .disabled(steamSession.authentication == .checking)
+                        if steamSession.authentication == .signedIn {
+                            Button("退出登录", role: .destructive) {
+                                Task { await steamSession.signOut() }
+                            }
+                        }
+                    }
+                }
+                if let steamSettingsMessage {
+                    Text(steamSettingsMessage).foregroundStyle(.orange)
+                }
+                if steamSession.authentication != .signedIn {
+                    SteamRemoteStorageWebView(
+                        ownerID: settingsSteamOwnerID,
+                        pageURL: SteamWebSession.accountURL,
+                        onDownloaded: { url, _ in
+                            try? FileManager.default.removeItem(at: url)
+                            steamSettingsMessage = "请从游戏详情页同步该游戏的存档。"
+                        },
+                        onError: { steamSettingsMessage = $0 }
+                    )
+                    .frame(height: 360)
+                    .onDisappear { steamSession.release(ownerID: settingsSteamOwnerID) }
+                }
+            } header: {
+                Text("Steam 账户")
+            } footer: {
+                Text(steamSession.authentication == .signedIn ? "登录状态保存在这台 Mac 上。" : "在上方网页登录 Steam，登录状态保存在这台 Mac 上。")
+            }
+        }
+        .formStyle(.grouped)
+        .frame(maxWidth: 720)
+    }
+
+    // MARK: - 状态提示
+
+    @ViewBuilder private var statusBar: some View {
+        if let status = library.status {
+            let busy = library.isScanning || library.launchingID != nil
+            HStack(spacing: 10) {
+                if busy { ProgressView().controlSize(.small) }
+                Text(status).font(.callout).lineLimit(2)
+                if !busy {
+                    Button { library.status = nil } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("关闭状态提示")
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.regularMaterial, in: Capsule())
+            .padding(.bottom, 16)
+            .frame(maxWidth: 480)
         }
     }
 }
@@ -820,180 +644,39 @@ private struct GameCard: View {
     let game: Game
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 6) {
             GameArtwork(game: game)
-                .frame(maxWidth: .infinity)
                 .aspectRatio(3 / 4, contentMode: .fit)
-                .clipped()
-            VStack(alignment: .leading, spacing: 7) {
-                Text(game.name).font(.callout.weight(.semibold)).lineLimit(1)
-                HStack(spacing: 6) {
-                    Text(game.engine.displayName).lineLimit(1)
-                    Spacer(minLength: 4)
-                    if game.playtime > 0 { Text(game.playtimeDescription).lineLimit(1) }
-                }
-                .font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(13)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(GlassPalette.line))
+            Text(game.name).font(.callout.weight(.medium)).lineLimit(1)
+            Text(game.playtime > 0 ? "\(game.engine.displayName) · \(game.playtimeDescription)" : game.engine.displayName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
-        .background(GlassPalette.surface, in: RoundedRectangle(cornerRadius: 16))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(GlassPalette.line))
+        .contentShape(Rectangle())
     }
 }
 
-private struct TitlebarBrandInstaller: NSViewRepresentable {
-    @ObservedObject var library: LibraryViewModel
+@MainActor
+private final class GameArtworkCache {
+    static let shared = GameArtworkCache()
+    private let images = NSCache<NSString, NSImage>()
 
-    func makeCoordinator() -> Coordinator { Coordinator(library: library) }
-
-    func makeNSView(context: Context) -> WindowAwareView {
-        let view = WindowAwareView()
-        let coordinator = context.coordinator
-        view.onWindowChange = { [weak coordinator] window in
-            coordinator?.attach(to: window)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: WindowAwareView, context: Context) {
-        context.coordinator.attach(to: nsView.window)
-    }
-
-    static func dismantleNSView(_ nsView: WindowAwareView, coordinator: Coordinator) {
-        nsView.onWindowChange = nil
-        coordinator.detach()
-    }
-
-    final class Coordinator {
-        private let library: LibraryViewModel
-        private weak var window: NSWindow?
-        private var accessories: [NSTitlebarAccessoryViewController] = []
-
-        init(library: LibraryViewModel) {
-            self.library = library
-        }
-
-        func attach(to window: NSWindow?) {
-            guard let window, self.window !== window else { return }
-            detach()
-
-            let actions = Gal4MacActionsAccessory(library: library)
-            actions.layoutAttribute = .right
-            window.addTitlebarAccessoryViewController(actions)
-            let brand = Gal4MacTitlebarAccessory()
-            brand.layoutAttribute = .left
-            window.addTitlebarAccessoryViewController(brand)
-            self.window = window
-            accessories = [actions, brand]
-        }
-
-        func detach() {
-            if let window {
-                for accessory in accessories {
-                    if let index = window.titlebarAccessoryViewControllers.firstIndex(where: { $0 === accessory }) {
-                        window.removeTitlebarAccessoryViewController(at: index)
-                    }
-                }
-            }
-            window = nil
-            accessories = []
-        }
-    }
-
-    final class WindowAwareView: NSView {
-        var onWindowChange: ((NSWindow?) -> Void)?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            onWindowChange?(window)
-        }
-    }
-
-    final class Gal4MacTitlebarAccessory: NSTitlebarAccessoryViewController {
-        override func loadView() {
-            let title = NSTextField(labelWithString: "Gal4Mac")
-            title.font = .systemFont(ofSize: 13, weight: .semibold)
-            title.textColor = .labelColor
-            title.sizeToFit()
-
-            let width = title.frame.width + 16
-            let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 40))
-            container.translatesAutoresizingMaskIntoConstraints = false
-            title.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(title)
-            NSLayoutConstraint.activate([
-                container.widthAnchor.constraint(equalToConstant: width),
-                container.heightAnchor.constraint(equalToConstant: 40),
-                title.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-                title.centerYAnchor.constraint(equalTo: container.centerYAnchor)
-            ])
-            preferredContentSize = NSSize(width: width, height: 40)
-            view = container
-        }
-    }
-
-    final class Gal4MacActionsAccessory: NSTitlebarAccessoryViewController {
-        private let library: LibraryViewModel
-
-        init(library: LibraryViewModel) {
-            self.library = library
-            super.init(nibName: nil, bundle: nil)
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func loadView() {
-            let host = NSHostingView(rootView: Gal4MacTitlebarActions(library: library))
-            host.frame = NSRect(x: 0, y: 0, width: 88, height: 40)
-            preferredContentSize = NSSize(width: 88, height: 40)
-            view = host
-        }
-    }
-}
-
-private struct Gal4MacTitlebarActions: View {
-    @ObservedObject var library: LibraryViewModel
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Button { library.scan() } label: {
-                Image(systemName: "arrow.clockwise")
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.borderless)
-            .help("重新扫描游戏库")
-            .disabled(library.isScanning)
-
-            Button { library.showingImportWizard = true } label: {
-                Image(systemName: "plus")
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.borderless)
-            .help("导入游戏")
-        }
-        .padding(.horizontal, 8)
-        .frame(width: 88, height: 40)
-    }
+    func image(for url: URL) -> NSImage? { images.object(forKey: url.path as NSString) }
+    func insert(_ image: NSImage, for url: URL) { images.setObject(image, forKey: url.path as NSString) }
 }
 
 private struct GameArtwork: View {
     let game: Game
-    let showsPlaceholder: Bool
+    @State private var artwork: NSImage?
 
-    init(game: Game, showsPlaceholder: Bool = true) {
-        self.game = game
-        self.showsPlaceholder = showsPlaceholder
-    }
-
-    var hasArtwork: Bool { artwork != nil || steamPosterURL != nil }
-
-    private var artwork: NSImage? {
+    private var artworkURL: URL? {
         let names = ["cover.jpg", "cover.png", "Cover.jpg", "Cover.png", "poster.jpg", "poster.png", "icon.png"]
         for name in names {
-            if let image = NSImage(contentsOf: game.path.appendingPathComponent(name)) { return image }
+            let url = game.path.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
         }
         return nil
     }
@@ -1024,47 +707,25 @@ private struct GameArtwork: View {
             .clipped()
         }
         .accessibilityHidden(true)
-    }
-
-    @ViewBuilder
-    private func placeholder(size: CGSize) -> some View {
-        if showsPlaceholder {
-            ZStack {
-                LinearGradient(colors: [accent.opacity(0.55), GlassPalette.background], startPoint: .topLeading, endPoint: .bottomTrailing)
-                Image(systemName: "gamecontroller.fill")
-                    .font(.system(size: min(size.width * 0.24, 44), weight: .light))
-                    .foregroundStyle(.white.opacity(0.72))
+        .task(id: game.path) {
+            guard let url = artworkURL else { return }
+            if let cached = GameArtworkCache.shared.image(for: url) {
+                artwork = cached
+                return
             }
-        } else {
-            Color.clear
+            let data = await Task.detached(priority: .utility) { try? Data(contentsOf: url) }.value
+            guard !Task.isCancelled, let data, let image = NSImage(data: data) else { return }
+            GameArtworkCache.shared.insert(image, for: url)
+            artwork = image
         }
     }
 
-    private var accent: Color {
-        switch game.engine {
-        case .unity: .cyan
-        case .siglus: .indigo
-        case .kirikiri: .orange
-        case .renpy: .pink
-        default: GlassPalette.blue
-        }
-    }
-}
-
-private extension View {
-    @ViewBuilder func removeDefaultToolbarTitle() -> some View {
-        if #available(macOS 15.0, *) {
-            self.toolbar(removing: .title)
-        } else {
-            self
-        }
-    }
-
-    @ViewBuilder func glassPanel() -> some View {
-        if #available(macOS 26.0, *) {
-            self.glassEffect(.regular, in: .rect(cornerRadius: 14))
-        } else {
-            self.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+    private func placeholder(size: CGSize) -> some View {
+        ZStack {
+            Rectangle().fill(.quaternary)
+            Image(systemName: "gamecontroller")
+                .font(.system(size: min(size.width * 0.22, 40), weight: .light))
+                .foregroundStyle(.secondary)
         }
     }
 }

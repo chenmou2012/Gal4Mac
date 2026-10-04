@@ -5,12 +5,17 @@ import SwiftUI
 struct Gal4MacApp: App {
     @StateObject private var library = LibraryViewModel()
 
+    init() {
+        // swift run 启动的可执行文件没有应用包，需要手动设为前台应用才会显示窗口。
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
     var body: some Scene {
         WindowGroup("Gal4Mac") {
             ContentView()
                 .environmentObject(library)
-                .frame(minWidth: 840, minHeight: 580)
-                .preferredColorScheme(.dark)
+                .frame(minWidth: 760, minHeight: 520)
         }
         .windowStyle(.titleBar)
         .windowResizability(.contentMinSize)

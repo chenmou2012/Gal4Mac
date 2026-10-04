@@ -252,6 +252,17 @@ final class SteamWebSession: NSObject, ObservableObject, WKNavigationDelegate, W
         webView.load(URLRequest(url: Self.accountURL))
     }
 
+    /// 清除 Steam 相关网站数据（Cookie、缓存）以退出登录。
+    func signOut() async {
+        let store = WKWebsiteDataStore.default()
+        let records = await store.dataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes())
+        let steam = records.filter { $0.displayName.contains("steampowered") || $0.displayName.contains("steamcommunity") }
+        await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), for: steam)
+        webView.stopLoading()
+        requestedURL = nil
+        authentication = .signedOut
+    }
+
     func activate(ownerID: UUID, pageURL: URL, onDownloaded: @escaping (URL, String) -> Void, onError: @escaping (String) -> Void) {
         self.ownerID = ownerID
         self.onDownloaded = onDownloaded

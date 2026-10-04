@@ -32,12 +32,14 @@ public final class LibraryManager {
         case invalidExecutable
         case pathUnavailable(URL)
         case noLibraryScanned
+        case invalidGameDirectory
 
         public var errorDescription: String? {
             switch self {
             case .invalidExecutable: return "请选择游戏目录中的 .exe 可执行文件"
             case .pathUnavailable(let path): return "游戏库路径不可访问：\(path.path)"
             case .noLibraryScanned: return "没有可访问的游戏库路径，请检查外接磁盘或目录权限"
+            case .invalidGameDirectory: return "解压后的游戏目录不可访问"
             }
         }
     }
@@ -291,6 +293,73 @@ public final class LibraryManager {
         try saveLibrary(library)
 
         return game
+    }
+
+    /// 将解压后的游戏放入指定库，并在成功登记后清理临时目录。
+    @discardableResult
+    public func importExtractedGame(
+        at source: URL,
+        into libraryPath: URL,
+        engine: EngineType,
+        executable: String,
+        displayName: String,
+        wineLocale: WineLocale,
+        steamAppID: Int?
+    ) throws -> Game {
+        let fm = FileManager.default
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: source.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw LibraryError.invalidGameDirectory
+        }
+        guard Self.isValidExecutable(executable, in: source) else {
+            throw LibraryError.invalidExecutable
+        }
+
+        let root = libraryPath.standardizedFileURL
+        if root == LibraryConfig.defaultPath.standardizedFileURL {
+            try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        }
+        isDirectory = false
+        guard fm.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw LibraryError.pathUnavailable(root)
+        }
+
+        let proposedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let folderName = proposedName.isEmpty || proposedName == "." || proposedName == ".."
+            ? "Game" : proposedName
+        var destination = root.appendingPathComponent(folderName, isDirectory: true)
+        var suffix = 2
+        while fm.fileExists(atPath: destination.path) {
+            destination = root.appendingPathComponent("\(folderName) (\(suffix))", isDirectory: true)
+            suffix += 1
+        }
+
+        let staging = root.appendingPathComponent(".gal4mac-import-\(UUID().uuidString)", isDirectory: true)
+        var movedIntoPlace = false
+        do {
+            try fm.copyItem(at: source, to: staging)
+            try fm.moveItem(at: staging, to: destination)
+            movedIntoPlace = true
+            guard let game = try addGame(
+                at: destination,
+                engine: engine,
+                executable: executable,
+                displayName: displayName,
+                wineLocale: wineLocale,
+                steamAppID: steamAppID,
+                clearSteamMatch: steamAppID == nil
+            ) else {
+                throw LibraryError.invalidExecutable
+            }
+            try? fm.removeItem(at: source)
+            return game
+        } catch {
+            try? fm.removeItem(at: staging)
+            if movedIntoPlace { try? fm.removeItem(at: destination) }
+            throw error
+        }
     }
 
     static func isValidExecutable(_ executable: String, in directory: URL) -> Bool {

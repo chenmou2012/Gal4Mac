@@ -4,7 +4,7 @@
 
 ## 项目状态
 
-🚧 **Phase 2 开发中** - 已验证 MVP
+🚧 **持续开发中**。SwiftUI 应用、CLI 和核心库均已接入；兼容性仍按具体游戏验证。
 
 | 引擎 | 状态 |
 |------|------|
@@ -16,10 +16,11 @@
 
 ## 特性
 
-- 🎮 **多引擎支持**：KiriKiri、SiglusEngine、Unity、TyranoScript 等
-- 🍎 **Apple Silicon 原生优化**：基于 Apple Game Porting Toolkit
-- 📚 **游戏库管理**：自动检测引擎，一键启动
-- 🌏 **CJK 优化**：内置中日文字体注入
+- 🎮 **多引擎识别**：识别 Unity、SiglusEngine、KiriKiri、TyranoScript 等；识别不代表已验证兼容
+- 🍎 **Wine/GPTK 启动**：通过 Mythic Engine 运行 Windows 游戏
+- 📚 **游戏库管理**：扫描、搜索、筛选、导入和一键启动
+- 🌏 **CJK 与音频配置**：按游戏设置 Wine 语言环境，启动时应用字体映射与音频默认值
+- 💾 **存档与 Steam 信息**：本地存档工具、Steam 游戏匹配及云存档导入入口
 - 🆓 **完全开源**：GPL-3.0
 
 ## 系统要求
@@ -30,7 +31,7 @@
 
 ## 引擎
 
-项目提供 SwiftUI 图形界面和命令行界面（CLI）。两者共用本机安装的 Mythic Engine 与游戏库数据；Wine 容器和存档保存在用户目录。
+项目提供 SwiftUI 图形界面和命令行界面（CLI）。两者共用游戏库数据。通过 `swift run` 启动的开发版本和 CLI 使用本机安装的 Mythic Engine；带内置 Engine 的应用包会优先使用包内 Engine。Wine 容器位于 `~/Library/Application Support/Mythic/Containers/`，游戏库配置位于 `~/Library/Application Support/Gal4Mac/`。存档位置取决于具体游戏和引擎。
 
 ## 音频默认配置
 
@@ -44,8 +45,8 @@
 若没有提供对应架构的原生 DLL，Wine 会回退到内置实现；64 位 DLL 可放在同级的
 `x64/dsound.dll`。仓库和应用包不包含 Windows DLL。
 
-首次使用前需要安装 Mythic 并下载 Engine。引擎包含 [Wine](https://www.winehq.org/) 及
-[Apple Game Porting Toolkit](https://developer.apple.com/gamesportingtoolkit/) 组件；仓库不存放引擎二进制。
+从源码运行前需要安装 Mythic 并下载 Engine。引擎包含 [Wine](https://www.winehq.org/) 及
+[Apple Game Porting Toolkit](https://developer.apple.com/gamesportingtoolkit/) 组件；SwiftPM 构建不会自动打包 Engine，仓库不存放引擎二进制。
 
 ## 安装
 
@@ -55,7 +56,7 @@
 # 1. 安装 Mythic（提供 GPTK 引擎）
 brew install --cask mythic
 
-# 2. 首次启动 Mythic 让其下载 Engine (~850MB)
+# 2. 首次启动 Mythic，让它下载 Engine
 open /Applications/Mythic.app
 
 # 3. 在仓库目录编译
@@ -65,14 +66,17 @@ swift build -c release
 swift run Gal4MacApp
 
 # 5. 或运行 CLI
+./.build/release/gal4mac doctor
 ./.build/release/gal4mac list
-./.build/release/gal4mac launch Aokana
-
+./.build/release/gal4mac scan ~/Games/Gal
+./.build/release/gal4mac launch "游戏名称"
 ```
 
 ## 使用示例
 
-图形界面右上角的 `+` 打开四步导入：选择本地文件夹或压缩包（也可填 HTTP/HTTPS 直链）、解压、确认游戏身份与运行配置、完成导入。在线下载需要 `aria2`；加密压缩包需要 `unar`。第三步会搜索 Steam 游戏，可以接受自动匹配、手动搜索选择，或设为自定义游戏。旧游戏也可在详情页匹配 Steam。已关联的游戏显示 Steam 介绍和背景，并提供存档同步入口：点击后先检查登录状态，未登录则在设置页的 Steam 网页登录；登录信息由 WebKit 的持久化网站数据保存。同步弹窗会先展示导入位置，用户确认“下载并导入”后才开始下载；同名本地文件会先备份。
+图形界面可从“导入游戏…”进入四步导入：选择本地文件夹、ZIP/RAR/7z 压缩包或 HTTP/HTTPS 压缩包直链；解压；确认显示名称、Steam 关联、引擎、可执行文件和语言环境；完成导入。在线下载需要 `aria2`；加密压缩包需要 `unar`。分卷压缩包会检查缺失分卷。也可以在设置中添加游戏库目录后重新扫描。
+
+游戏详情支持启动、停止、在 Finder 中显示、设置语言环境和从游戏库移除。移除只删除库记录，不删除游戏文件。关联 Steam AppID 后可查看 Steam 介绍，并打开云存档导入入口：先在设置中的 Steam 网页登录，再确认目标存档目录和下载导入；同名文件会先备份。云存档功能仍需按具体游戏做端到端验证。
 
 ```bash
 # 扫描游戏库
@@ -87,8 +91,13 @@ gal4mac launch CLANNAD
 # 显示游戏信息
 gal4mac info Aokana
 
-# 手动指定引擎
-gal4mac launch /path/to/game --engine kirikiri
+# 查看环境与管理库目录
+gal4mac doctor
+gal4mac libraries
+gal4mac add-library ~/Games/Gal
+
+# 不经游戏库，直接指定游戏目录
+gal4mac launch "游戏名称" --path /path/to/game
 ```
 
 ## 开发路线图
@@ -97,8 +106,9 @@ gal4mac launch /path/to/game --engine kirikiri
 - [x] **Phase 2 (核心)**：CLI 启动器
   - [x] 引擎检测
   - [x] 一键启动
-  - [ ] CJK 字体注入
+  - [x] 基础 CJK 字体映射与 Wine 语言环境
 - [x] SwiftUI 图形界面：游戏库、详情、导入、统计与基础设置
+- [ ] 扩大逐游戏兼容性验证与 Steam 云存档端到端验证
 
 ## 架构
 

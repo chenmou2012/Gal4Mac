@@ -24,6 +24,7 @@ struct SteamCloudSheet: View {
     @State private var completedCount = 0
     @State private var totalCount = 0
     @State private var downloadErrors: [String] = []
+    @State private var importErrors: [String] = []
     @State private var message: String?
     @State private var showingConfirmation = false
     @State private var showingSteamPage = false
@@ -92,8 +93,24 @@ struct SteamCloudSheet: View {
             if let message {
                 Text(message)
                     .font(.callout)
-                    .foregroundStyle(downloadErrors.isEmpty ? GlassPalette.secondary : .orange)
+                    .foregroundStyle(downloadErrors.isEmpty && importErrors.isEmpty ? GlassPalette.secondary : .orange)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !downloadErrors.isEmpty || !importErrors.isEmpty {
+                DisclosureGroup("查看失败详情（\(downloadErrors.count + importErrors.count)）") {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 5) {
+                            ForEach(Array((downloadErrors + importErrors).enumerated()), id: \.offset) { _, error in
+                                Text(error).font(.caption).textSelection(.enabled)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 80)
+                }
+                .font(.callout)
+                .foregroundStyle(.orange)
             }
 
             if !downloads.isEmpty {
@@ -162,6 +179,7 @@ struct SteamCloudSheet: View {
         isChecking = true
         message = nil
         downloadErrors = []
+        importErrors = []
         completedCount = 0
         totalCount = 0
         Task { @MainActor in
@@ -236,10 +254,12 @@ struct SteamCloudSheet: View {
             let completedIDs = importedIDs
             let completedBackupCount = backupCount
             let failureCount = failures.count
+            let completedFailures = failures
             await MainActor.run {
                 let imported = pending.filter { completedIDs.contains($0.id) }
                 downloads.removeAll { completedIDs.contains($0.id) }
                 for item in imported { try? FileManager.default.removeItem(at: item.url) }
+                importErrors = completedFailures
                 var summary = "已导入 \(imported.count) 个存档文件"
                 if completedBackupCount > 0 { summary += "；\(completedBackupCount) 个原文件已备份" }
                 if !downloadErrors.isEmpty { summary += "；\(downloadErrors.count) 个下载失败" }
@@ -263,6 +283,7 @@ struct SteamCloudSheet: View {
                 await MainActor.run {
                     downloads.removeAll { $0.id == download.id }
                     try? FileManager.default.removeItem(at: download.url)
+                    importErrors = []
                     message = result.backup == nil
                         ? "已导入 \(result.destination.lastPathComponent)。"
                         : "已导入 \(result.destination.lastPathComponent)，原文件已备份。"
@@ -271,6 +292,7 @@ struct SteamCloudSheet: View {
             } catch {
                 await MainActor.run {
                     message = error.localizedDescription
+                    importErrors = ["\(download.filename)：\(error.localizedDescription)"]
                     isImporting = false
                 }
             }

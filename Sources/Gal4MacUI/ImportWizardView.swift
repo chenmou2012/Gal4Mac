@@ -37,10 +37,12 @@ private final class ImportWizardModel: ObservableObject {
     @Published var link = ""
     @Published var password = ""
     @Published var isBusy = false
+    @Published var isImporting = false
     @Published var progress = 0.0
     @Published var progressText = ""
     @Published var errorMessage: String?
     @Published var gameDirectory: URL?
+    @Published var selectedLibraryPath = LibraryConfig.defaultPath
     @Published var displayName = ""
     @Published var engine: EngineType = .unknown
     @Published var executableOptions: [String] = []
@@ -54,6 +56,7 @@ private final class ImportWizardModel: ObservableObject {
     @Published var importedGame: Game?
 
     private var downloader: Aria2Downloader?
+    private var downloadedSourceDirectory: URL?
     private var extractionRoot: URL?
     private var extractionInProgress = false
     private var operationID = UUID()
@@ -65,6 +68,18 @@ private final class ImportWizardModel: ObservableObject {
     }
 
     func resetSource() {
+        if let downloadedSourceDirectory {
+            DispatchQueue.global(qos: .utility).async {
+                try? FileManager.default.removeItem(at: downloadedSourceDirectory)
+            }
+            self.downloadedSourceDirectory = nil
+        }
+        if let extractionRoot, !extractionInProgress, importedGame == nil {
+            DispatchQueue.global(qos: .utility).async {
+                try? FileManager.default.removeItem(at: extractionRoot)
+            }
+            self.extractionRoot = nil
+        }
         sourceURL = nil
         gameDirectory = nil
         errorMessage = nil
@@ -85,9 +100,8 @@ private final class ImportWizardModel: ObservableObject {
             errorMessage = "请选择游戏文件夹或 zip、rar、7z 压缩包。"
             return
         }
+        resetSource()
         sourceURL = url
-        gameDirectory = nil
-        errorMessage = nil
     }
 
     func download() {
@@ -131,17 +145,26 @@ private final class ImportWizardModel: ObservableObject {
                 }
             }, onComplete: { [weak self] result in
                 Task { @MainActor [weak self] in
-                    guard let self, self.operationID == token else { return }
+                    guard let self, self.operationID == token else {
+                        DispatchQueue.global(qos: .utility).async {
+                            try? FileManager.default.removeItem(at: directory)
+                        }
+                        return
+                    }
                     self.isBusy = false
                     self.downloader = nil
                     switch result {
                     case .success(let file):
                         self.sourceURL = file
+                        self.downloadedSourceDirectory = directory
                         self.progress = 1
                         self.progressText = "下载完成"
                         self.step = .extract
                     case .failure(let error):
                         self.errorMessage = error.localizedDescription
+                        DispatchQueue.global(qos: .utility).async {
+                            try? FileManager.default.removeItem(at: directory)
+                        }
                     }
                 }
             })
@@ -149,6 +172,9 @@ private final class ImportWizardModel: ObservableObject {
             isBusy = false
             downloader = nil
             errorMessage = error.localizedDescription
+            DispatchQueue.global(qos: .utility).async {
+                try? FileManager.default.removeItem(at: directory)
+            }
         }
     }
 
@@ -169,16 +195,26 @@ private final class ImportWizardModel: ObservableObject {
         errorMessage = nil
         progressText = "正在检查分卷并解压…"
         let secret = password.isEmpty ? nil : password
+        let downloadedDirectory = downloadedSourceDirectory
         let token = UUID()
         operationID = token
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result = Result { try ArchiveExtractor().extract(archiveURL: sourceURL, to: destination, password: secret) }
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self else {
+                    DispatchQueue.global(qos: .utility).async {
+                        try? FileManager.default.removeItem(at: destination)
+                        if let downloadedDirectory { try? FileManager.default.removeItem(at: downloadedDirectory) }
+                    }
+                    return
+                }
                 self.extractionInProgress = false
                 guard self.operationID == token else {
-                    DispatchQueue.global(qos: .utility).async { try? FileManager.default.removeItem(at: destination) }
+                    DispatchQueue.global(qos: .utility).async {
+                        try? FileManager.default.removeItem(at: destination)
+                        if let downloadedDirectory { try? FileManager.default.removeItem(at: downloadedDirectory) }
+                    }
                     return
                 }
                 self.isBusy = false
@@ -197,13 +233,14 @@ private final class ImportWizardModel: ObservableObject {
         }
     }
 
-    func advanceFromExtraction() {
+    func advanceFromExtraction(using library: LibraryViewModel) {
         guard let sourceURL else { return }
         if isFolder {
             gameDirectory = sourceURL
             loadConfiguration(for: sourceURL)
         }
         guard gameDirectory != nil else { return }
+        selectedLibraryPath = library.config.libraryPaths.first ?? LibraryConfig.defaultPath
         errorMessage = nil
         step = .configure
     }
@@ -218,6 +255,35 @@ private final class ImportWizardModel: ObservableObject {
             errorMessage = "请选择可执行文件。"
             return
         }
+        if let extractionRoot {
+            isBusy = true
+            isImporting = true
+            library.importExtractedGame(
+                at: gameDirectory,
+                into: selectedLibraryPath,
+                name: displayName,
+                engine: engine,
+                executable: executable,
+                locale: locale,
+                steamAppID: selectedSteamAppID
+            ) { [weak self] result in
+                guard let self else { return }
+                self.isBusy = false
+                self.isImporting = false
+                switch result {
+                case .success(let game):
+                    self.importedGame = game
+                    self.extractionRoot = nil
+                    self.finishImport()
+                    DispatchQueue.global(qos: .utility).async {
+                        try? FileManager.default.removeItem(at: extractionRoot)
+                    }
+                case .failure(let error):
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+            return
+        }
         do {
             importedGame = try library.importGame(
                 at: gameDirectory,
@@ -227,11 +293,21 @@ private final class ImportWizardModel: ObservableObject {
                 locale: locale,
                 steamAppID: selectedSteamAppID
             )
-            password = ""
-            errorMessage = nil
-            step = .complete
+            finishImport()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func finishImport() {
+        password = ""
+        errorMessage = nil
+        step = .complete
+        if let downloadedSourceDirectory {
+            DispatchQueue.global(qos: .utility).async {
+                try? FileManager.default.removeItem(at: downloadedSourceDirectory)
+            }
+            self.downloadedSourceDirectory = nil
         }
     }
 
@@ -240,9 +316,15 @@ private final class ImportWizardModel: ObservableObject {
         steamSearchID = UUID()
         downloader?.cancel()
         downloader = nil
-        guard importedGame == nil, !extractionInProgress, let extractionRoot else { return }
-        DispatchQueue.global(qos: .utility).async { try? FileManager.default.removeItem(at: extractionRoot) }
-        self.extractionRoot = nil
+        guard importedGame == nil, !extractionInProgress else { return }
+        let temporaryDirectory = downloadedSourceDirectory
+        let extractedDirectory = extractionRoot
+        DispatchQueue.global(qos: .utility).async {
+            if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
+            if let extractedDirectory { try? FileManager.default.removeItem(at: extractedDirectory) }
+        }
+        downloadedSourceDirectory = nil
+        extractionRoot = nil
     }
 
     private func loadConfiguration(for directory: URL) {
@@ -310,7 +392,7 @@ struct ImportWizardView: View {
                 Button { close() } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("关闭导入向导")
-                    .disabled(model.isBusy)
+                    .disabled(model.isImporting)
             }
             .padding(.bottom, 28)
 
@@ -360,8 +442,9 @@ struct ImportWizardView: View {
                     .disabled(model.isBusy)
                 }
                 Spacer()
+                if model.isImporting { ProgressView("正在移动到游戏库…").controlSize(.small) }
                 Button(model.step == .complete ? "完成" : "取消") { close() }
-                    .disabled(model.isBusy)
+                    .disabled(model.isImporting)
                 if model.step != .complete { primaryAction }
             }
             .padding(.top, 18)
@@ -382,6 +465,7 @@ struct ImportWizardView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .disabled(model.isBusy)
             .onChange(of: model.sourceMode) { _, _ in model.resetSource() }
 
             if model.sourceMode == .local {
@@ -404,6 +488,8 @@ struct ImportWizardView: View {
                 if model.isBusy {
                     ProgressView(value: model.progress)
                     Text(model.progressText).font(.caption).foregroundStyle(.secondary)
+                    Text("取消导入会停止下载并清理临时文件。")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 if let source = model.sourceURL { sourceCard(source) }
             }
@@ -428,6 +514,8 @@ struct ImportWizardView: View {
                         ProgressView().controlSize(.small)
                         Text(model.progressText).foregroundStyle(.secondary)
                     }
+                    Text("取消导入后，解压会在后台结束，临时文件随后清理。")
+                        .font(.caption).foregroundStyle(.secondary)
                 } else if let gameDirectory = model.gameDirectory {
                     Label("已找到游戏目录：\(gameDirectory.lastPathComponent)", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
@@ -507,6 +595,18 @@ struct ImportWizardView: View {
                 }
             }
             .font(.callout)
+            if !model.isFolder {
+                LabeledContent("游戏库位置") {
+                    Picker("游戏库位置", selection: $model.selectedLibraryPath) {
+                        ForEach(library.config.libraryPaths, id: \.self) { path in
+                            Text(path.path).tag(path)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 400)
+                }
+                .font(.callout)
+            }
             if model.engine == .unknown {
                 Label("未识别游戏引擎。你可以手动选择，或保留 Unknown 尝试通用配置。", systemImage: "info.circle")
                     .font(.caption).foregroundStyle(.secondary)
@@ -536,13 +636,13 @@ struct ImportWizardView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(model.sourceURL == nil || model.isBusy)
         case .extract:
-            Button("继续") { model.advanceFromExtraction() }
+            Button("继续") { model.advanceFromExtraction(using: library) }
                 .buttonStyle(.borderedProminent)
                 .disabled(model.isBusy || (!model.isFolder && model.gameDirectory == nil))
         case .configure:
             Button("加入游戏库") { model.importGame(using: library) }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.executable.isEmpty || model.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(model.isBusy || model.executable.isEmpty || model.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         case .complete:
             EmptyView()
         }
@@ -571,6 +671,7 @@ struct ImportWizardView: View {
     }
 
     private func close() {
+        guard !model.isImporting else { return }
         model.cancelUnfinished()
         if let game = model.importedGame { onComplete(game) }
         dismiss()

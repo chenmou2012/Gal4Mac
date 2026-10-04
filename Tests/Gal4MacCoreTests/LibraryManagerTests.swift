@@ -2,6 +2,84 @@ import XCTest
 @testable import Gal4MacCore
 
 final class LibraryManagerTests: XCTestCase {
+    func testExtractedGameMovesIntoLibraryAndKeepsMetadata() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("Imported/Game")
+        let libraryPath = root.appendingPathComponent("Library")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: libraryPath, withIntermediateDirectories: true)
+        try Data().write(to: source.appendingPathComponent("Start.exe"))
+        let manager = LibraryManager(storageDirectory: root.appendingPathComponent("Config"))
+
+        let game = try manager.importExtractedGame(
+            at: source,
+            into: libraryPath,
+            engine: .unknown,
+            executable: "Start.exe",
+            displayName: "Example",
+            wineLocale: .japanese,
+            steamAppID: 123
+        )
+
+        XCTAssertEqual(game.path, libraryPath.appendingPathComponent("Example"))
+        XCTAssertEqual(game.wineLocale, .japanese)
+        XCTAssertEqual(game.steamAppID, 123)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: game.path.appendingPathComponent("Start.exe").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertEqual(manager.loadLibrary(), [game])
+    }
+
+    func testExtractedGameDoesNotOverwriteExistingLibraryFolder() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("Imported/Game")
+        let libraryPath = root.appendingPathComponent("Library")
+        let existing = libraryPath.appendingPathComponent("Example")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+        try Data().write(to: source.appendingPathComponent("Start.exe"))
+        try Data("original".utf8).write(to: existing.appendingPathComponent("keep.txt"))
+        let manager = LibraryManager(storageDirectory: root.appendingPathComponent("Config"))
+
+        let game = try manager.importExtractedGame(
+            at: source,
+            into: libraryPath,
+            engine: .unknown,
+            executable: "Start.exe",
+            displayName: "Example",
+            wineLocale: .automatic,
+            steamAppID: nil
+        )
+
+        XCTAssertEqual(game.path, libraryPath.appendingPathComponent("Example (2)"))
+        XCTAssertEqual(try String(contentsOf: existing.appendingPathComponent("keep.txt")), "original")
+    }
+
+    func testFailedExtractedImportKeepsSourceAndLibraryUnchanged() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("Imported/Game")
+        let libraryPath = root.appendingPathComponent("Library")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: libraryPath, withIntermediateDirectories: true)
+        let manager = LibraryManager(storageDirectory: root.appendingPathComponent("Config"))
+
+        XCTAssertThrowsError(try manager.importExtractedGame(
+            at: source,
+            into: libraryPath,
+            engine: .unknown,
+            executable: "Missing.exe",
+            displayName: "Example",
+            wineLocale: .automatic,
+            steamAppID: nil
+        ))
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: libraryPath.path).isEmpty)
+        XCTAssertTrue(manager.loadLibrary().isEmpty)
+    }
+
     func testReimportKeepsSelectedWineLocale() throws {
         let storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: storage) }
