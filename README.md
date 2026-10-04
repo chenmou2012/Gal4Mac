@@ -50,6 +50,20 @@
 
 ## 安装
 
+### 下载安装包
+
+在 [Releases](https://github.com/chenmou2012/Gal4Mac/releases) 下载 `Gal4Mac-<版本>-macos-<架构>.dmg`，打开后把 `Gal4Mac.app` 拖进“应用程序”。安装包不含 Mythic Engine，需要先按下面的步骤安装 Mythic 并下载 Engine。
+
+安装包没有 Apple Developer ID 签名，也未经公证，首次打开会被 Gatekeeper 拦截。任选一种方式放行，每次安装只需做一次：
+
+- macOS 14：在“应用程序”中右键点击 Gal4Mac，选择“打开”，再确认“打开”。
+- macOS 15 及更新：先双击打开一次并关闭提示，然后进入“系统设置 → 隐私与安全性”，在底部点击“仍要打开”。
+- 或在终端运行：`xattr -dr com.apple.quarantine /Applications/Gal4Mac.app`
+
+可用发布页中的 `.sha256` 文件校验下载：`shasum -a 256 -c Gal4Mac-*.dmg.sha256`。
+
+### 从源码运行
+
 ### 快速开始
 
 ```bash
