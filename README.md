@@ -52,7 +52,7 @@
 
 ### 下载安装包
 
-在 [Releases](https://github.com/chenmou2012/Gal4Mac/releases) 下载 `Gal4Mac-<版本>-macos-<架构>.dmg`，打开后把 `Gal4Mac.app` 拖进“应用程序”。安装包不含 Mythic Engine，需要先按下面的步骤安装 Mythic 并下载 Engine。
+在 [Releases](https://github.com/chenmou2012/Gal4Mac/releases) 下载 `Gal4Mac-<版本>-macos-<架构>.dmg`，打开后把 `Gal4Mac.app` 拖进“应用程序”。发布页提供两个安装包：文件名带 `-with-engine` 的已内置 Mythic Engine，可直接使用；另一个体积很小，不含 Engine，需要先按下面的步骤安装 Mythic 并下载 Engine。
 
 安装包没有 Apple Developer ID 签名，也未经公证，首次打开会被 Gatekeeper 拦截。任选一种方式放行，每次安装只需做一次：
 
@@ -90,7 +90,7 @@ swift run Gal4MacApp
 
 图形界面可从“导入游戏…”进入四步导入：选择本地文件夹、ZIP/RAR/7z 压缩包或 HTTP/HTTPS 压缩包直链；解压；确认显示名称、Steam 关联、引擎、可执行文件和语言环境；完成导入。在线下载需要 `aria2`；加密压缩包需要 `unar`。分卷压缩包会检查缺失分卷。也可以在设置中添加游戏库目录后重新扫描。
 
-游戏详情支持启动、停止、在 Finder 中显示、设置语言环境和从游戏库移除。移除只删除库记录，不删除游戏文件。关联 Steam AppID 后可查看 Steam 介绍，并打开云存档导入入口：先在设置中的 Steam 网页登录，再确认目标存档目录和下载导入；同名文件会先备份。云存档功能仍需按具体游戏做端到端验证。
+游戏详情支持启动、停止、在 Finder 中显示、设置语言环境和从游戏库移除。移除只删除库记录，不删除游戏文件。关联 Steam AppID 后可查看 Steam 介绍，并打开云存档导入入口：先在设置中登录 Steam（登录后网页隐藏，可随时退出登录），再确认目标存档目录和下载导入；同名文件会先备份。云存档功能仍需按具体游戏做端到端验证。
 
 ```bash
 # 扫描游戏库
